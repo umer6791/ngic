@@ -183,7 +183,8 @@ download_dpdk_zip()
 	fi
 	wget ${DPDK_DOWNLOAD}
 	unzip -o ${DPDK_DOWNLOAD##*/}
-	mv $NGIC_DIR/dpdk-16.04 $NGIC_DIR/dpdk
+	rm -rf $NGIC_DIR/dpdk/
+	mv $NGIC_DIR/dpdk-16.04/ $NGIC_DIR/dpdk
 }
 
 install_dpdk()
