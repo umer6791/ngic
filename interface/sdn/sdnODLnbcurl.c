@@ -34,14 +34,6 @@
 #include "cp_stats.h"
 #include "interface.h"
 
-#define S11_OBJ_MEMPOOL_SIZE  (64 * 1024)
-#define SDN_NB_RING_SIZE      (2 * S11_OBJ_MEMPOOL_SIZE)
-#define SDN_NB_CACHE_SIZE     (0)
-
-struct rte_mempool *create_mempool;
-struct rte_mempool *modify_mempool;
-struct rte_mempool *delete_mempool;
-struct rte_ring *sdnODLnbif_ring;
 
 char *dpn_id;
 char *client_id;
@@ -50,7 +42,7 @@ char *client_id;
 
 #if DEBUG_SDN_ODL
 #define DEBUG_PUTS(output) \
-	do { puts(output); } while (0)
+	puts(output)
 #else
 #define DEBUG_PUTS(output) do {} while (0)
 #endif
@@ -66,21 +58,22 @@ struct sdnODLnbif_ring_entry_t {
 	uint32_t local_teid;
 	uint64_t imsi;
 	uint8_t ebi;
+	uint64_t op_id;
 };
 
-static uint32_t sdnODLcreateqnb;
-static uint32_t sdnODLmodifyqnb;
-static uint32_t sdnODLdeleteqnb;
+struct rte_mempool *nb_mempool[NUM_CURL_POST_PTHREADS];
+pthread_t post_thread[NUM_CURL_POST_PTHREADS];
+struct rte_ring *sdnODLnbif_ring[NUM_CURL_POST_PTHREADS];
 
 
-CURL *curlnbhndl = NULL;
-struct curl_slist *curlnbheaders = NULL;
-CURL *curl_topology = NULL;
-struct curl_slist *topology_list = NULL;
-CURL *curl_bind_client = NULL;
-struct curl_slist *bind_client_list = NULL;
-CURL *curl_unbind_client = NULL;
-struct curl_slist *bind_unclient_list = NULL;
+CURL *curlnbhndl[NUM_CURL_POST_PTHREADS];
+struct curl_slist *curlnbheaders;
+CURL *curl_topology;
+struct curl_slist *topology_list;
+CURL *curl_bind_client;
+struct curl_slist *bind_client_list;
+CURL *curl_unbind_client;
+struct curl_slist *unbind_client_list;
 
 /**
  * This callback function consumes output returned from curl_easy_perform
@@ -114,49 +107,49 @@ consume_output_unbind_client(__rte_unused char *ptr, size_t size, size_t nmemb,
 
 
 static void
-sdnODLnbopreq(char *sdnODLpostdata, enum s11_msgtype sdnODLop)
+sdnODLnbopreq(CURL *curl_handle, char *postdata)
 {
 	CURLcode res;
 
-	if (sdnODLop == CREATE_SESSION || sdnODLop == MODIFY_BEARER
-			|| sdnODLop == DELETE_SESSION) {
-		DO_CHECK_CURL_EASY_SETOPT(curlnbhndl, CURLOPT_POSTFIELDS,
-				sdnODLpostdata);
-		res = curl_easy_perform(curlnbhndl);
+	DO_CHECK_CURL_EASY_SETOPT(curl_handle, CURLOPT_POSTFIELDS, postdata);
+	res = curl_easy_perform(curl_handle);
 
-		if (res != CURLE_OK) {
-			printf("CURL OP: Error!!! CURLOPT_POSTFIELDS::"
-					" curl_easy_perform():\t%s\n",
-					curl_easy_strerror(res));
-		} else {
-			long response_code;
-			curl_easy_getinfo(curlnbhndl, CURLINFO_RESPONSE_CODE,
-					&response_code);
-
-			if (response_code != HTTP_CONTINUE &&
-					response_code != HTTP_OK) {
-				printf("CURL response %ld on op %d\n",
-						response_code, sdnODLop);
-				puts(sdnODLpostdata);
-				puts("");
-			}
-		}
+	if (res != CURLE_OK) {
+		printf("CURL OP: Error!!! CURLOPT_POSTFIELDS::"
+				" curl_easy_perform():\t%s\n",
+				curl_easy_strerror(res));
 	} else {
-		printf("Error: UNKNOWN CURL OP: %d\n", sdnODLop);
+		long response_code;
+		CURLcode m = curl_easy_getinfo(curl_handle,
+				CURLINFO_RESPONSE_CODE, &response_code);
+
+		if (m != CURLE_OK) {
+			printf("Error on curl_easy_getinfo: %s\n",
+					curl_easy_strerror(m));
+		} else if (response_code != HTTP_CONTINUE &&
+				response_code != HTTP_OK) {
+			printf("CURL response %ld\n", response_code);
+			puts(postdata);
+			puts("");
+		}
 	}
 
 
 	DEBUG_PUTS("POST:");
-	DEBUG_PUTS(sdnODLpostdata);
+	DEBUG_PUTS(postdata);
 }
+
 
 /**
  * @brief creates JSON object string from format specifier and posts to fpc
+ * @param curl_handle
+ *	curl handle to use
  * @param sdnODLnbif_entry
- * values for use in message format specifiers
+ *	values for use in message format specifiers
  */
 static inline void
-sdnODLpost(struct sdnODLnbif_ring_entry_t *sdnODLnbif_entry) {
+sdnODLpost(CURL *curl_handle, struct sdnODLnbif_ring_entry_t *sdnODLnbif_entry)
+{
 	char sdnODLjobjpost[JSON_BUF_SZ];
 	char assigned_address_string[INET_ADDRSTRLEN];
 	char remote_address_string[INET_ADDRSTRLEN];
@@ -172,37 +165,16 @@ sdnODLpost(struct sdnODLnbif_ring_entry_t *sdnODLnbif_entry) {
 		inet_ntoa(*((struct in_addr *)
 				&sdnODLnbif_entry->local_address)));
 
-	static uint32_t sdnODLnbcreateid_seq;
-	static uint64_t sdnODLnbcreateid_nb = CREATE_OPID_NBSPACE;
-	static uint32_t sdnODLnbmodifyid_seq;
-	static uint64_t sdnODLnbmodifyid_nb = MODIFY_OPID_NBSPACE;
-	static uint32_t sdnODLnbdeleteid_seq;
-	static uint64_t sdnODLnbdeleteid_nb = DELETE_OPID_NBSPACE;
-
-	static uint32_t create_session_nb;
-	static uint32_t modify_bearer_nb;
-	static uint32_t delete_session_nb;
-	static uint32_t sdnODLnb_post_nb;
-
 	if (dpn_id == NULL) {
 		DEBUG_PUTS("NO DPN INSTALLED!!!!");
 		return;
 	}
 
-
+	/* Initialize POST Jason Data Object- sdnODLjobjpost */
 	if (sdnODLnbif_entry->sdnODLnbif_msgtyp == CREATE_SESSION) {
-		++sdnODLnbcreateid_seq;
-		sdnODLnbcreateid_nb = CREATE_OPID_NBSPACE
-				+ sdnODLnbcreateid_seq * OPID_MASK;
-
-		uint64_t op_id = (sdnODLnbcreateid_nb | 0x01);
-		add_nb_op_id(op_id);
-		++create_session_nb;
-
-		/* Initialize POST Jason Data Object- sdnODLjobjpost */
 		snprintf(sdnODLjobjpost, JSON_BUF_SZ,
 			POST_CREATE_UPDATE_FORMAT_STR,
-			op_id,
+			sdnODLnbif_entry->op_id,
 			ODL_INSTRUCTION_SESSION_UPLINK,
 			sdnODLnbif_entry->sess_id,
 			assigned_address_string,
@@ -220,16 +192,9 @@ sdnODLpost(struct sdnODLnbif_ring_entry_t *sdnODLnbif_entry) {
 			ODL_OP_TYPE_CREATE,
 			ODL_OP_PREF_NONE);
 	} else if (sdnODLnbif_entry->sdnODLnbif_msgtyp == MODIFY_BEARER) {
-		uint64_t op_id = (sdnODLnbmodifyid_nb | 0x02);
-		add_nb_op_id(op_id);
-
-		++sdnODLnbmodifyid_seq;
-		sdnODLnbmodifyid_nb = MODIFY_OPID_NBSPACE
-				+ sdnODLnbmodifyid_seq * OPID_MASK;
-		++modify_bearer_nb;
-		/* Initialize POST Jason Data Object- sdnODLjobjpost */
 		snprintf(sdnODLjobjpost, JSON_BUF_SZ,
-			POST_CREATE_UPDATE_FORMAT_STR, op_id,
+			POST_CREATE_UPDATE_FORMAT_STR,
+			sdnODLnbif_entry->op_id,
 			ODL_INSTRUCTION_DOWNLINK,
 			sdnODLnbif_entry->sess_id,
 			assigned_address_string,
@@ -247,26 +212,19 @@ sdnODLpost(struct sdnODLnbif_ring_entry_t *sdnODLnbif_entry) {
 			ODL_OP_TYPE_UPDATE,
 			ODL_OP_PREF_NONE);
 	} else if (sdnODLnbif_entry->sdnODLnbif_msgtyp == DELETE_SESSION) {
-		uint64_t op_id = (sdnODLnbdeleteid_nb | 0x03);
-		add_nb_op_id(op_id);
-
-		++sdnODLnbdeleteid_seq;
-		sdnODLnbdeleteid_nb = DELETE_OPID_NBSPACE
-				+ sdnODLnbdeleteid_seq * OPID_MASK;
-		++delete_session_nb;
-
-		/* Initialize POST Jason Data Object- sdnODLjobjpost */
 		snprintf(sdnODLjobjpost, JSON_BUF_SZ, POST_DELETE_FORMAT_STR,
-				op_id, sdnODLnbif_entry->sess_id,
-				client_id,
-				ODL_OP_TYPE_DELETE,
-				ODL_OP_PREF_NONE);
+			sdnODLnbif_entry->op_id,
+			sdnODLnbif_entry->sess_id,
+			client_id,
+			ODL_OP_TYPE_DELETE,
+			ODL_OP_PREF_NONE);
+	} else {
+		printf("Error: UNKNOWN Message Type: %d\n",
+				sdnODLnbif_entry->sdnODLnbif_msgtyp);
+		return;
 	}
 
-	sdnODLnbopreq(sdnODLjobjpost,
-			sdnODLnbif_entry->sdnODLnbif_msgtyp);
-
-	++sdnODLnb_post_nb;
+	sdnODLnbopreq(curl_handle, sdnODLjobjpost);
 }
 
 int
@@ -277,33 +235,17 @@ s11sdnODLprocess(enum s11_msgtype s11_mtyp, uint64_t sess_id,
 {
 	int ret;
 	struct sdnODLnbif_ring_entry_t *s11sdnODLnb_entry = NULL;
-	if (s11_mtyp == CREATE_SESSION) {
-		ret = rte_mempool_get(create_mempool,
-				(void **) &s11sdnODLnb_entry);
-		if (ret)
-			rte_panic("Error getting create_mempool!!!...\n");
+	unsigned post_thread_id;
+	static uint64_t create_count;
+	static uint64_t modify_count;
+	static uint64_t delete_count;
 
-		++sdnODLcreateqnb;
-		s11sdnODLnb_entry->sdnODLnbif_msgtyp = CREATE_SESSION;
-	}
-	if (s11_mtyp == MODIFY_BEARER) {
-		ret = rte_mempool_get(modify_mempool,
-				(void **) &s11sdnODLnb_entry);
-		if (ret)
-			rte_panic("Error getting modify_mempool!!!...\n");
-
-		++sdnODLmodifyqnb;
-		s11sdnODLnb_entry->sdnODLnbif_msgtyp = MODIFY_BEARER;
-	}
-	if (s11_mtyp == DELETE_SESSION) {
-		ret = rte_mempool_get(delete_mempool,
-				(void **) &s11sdnODLnb_entry);
-		if (ret)
-			rte_panic("Error getting delete_mempool!!!...\n");
-
-		++sdnODLdeleteqnb;
-		s11sdnODLnb_entry->sdnODLnbif_msgtyp = DELETE_SESSION;
-	}
+	post_thread_id = ntohl(assigned_ip) % NUM_CURL_POST_PTHREADS;
+	ret = rte_mempool_get(nb_mempool[post_thread_id],
+			(void **) &s11sdnODLnb_entry);
+	if (ret)
+		rte_panic("Error getting nb_mempool!!!...\n");
+	s11sdnODLnb_entry->sdnODLnbif_msgtyp = s11_mtyp;
 	s11sdnODLnb_entry->sess_id = sess_id;
 	s11sdnODLnb_entry->assigned_ip = assigned_ip;
 	s11sdnODLnb_entry->remote_address = remote_address;
@@ -313,37 +255,118 @@ s11sdnODLprocess(enum s11_msgtype s11_mtyp, uint64_t sess_id,
 	s11sdnODLnb_entry->imsi = imsi;
 	s11sdnODLnb_entry->ebi = ebi;
 
-	rte_ring_enqueue(sdnODLnbif_ring, (void *) s11sdnODLnb_entry);
+	/* set op_id as follows:
+	 * lest significant decimal digit: operation
+	 */
+	switch (s11_mtyp) {
+	case CREATE_SESSION:
+		s11sdnODLnb_entry->op_id = create_count * 1000 +
+				post_thread_id * 10 +
+				CREATE_SESSION;
+		++create_count;
+		break;
+	case MODIFY_BEARER:
+		s11sdnODLnb_entry->op_id = modify_count * 1000 +
+				post_thread_id * 10 +
+				MODIFY_BEARER;
+		++modify_count;
+		break;
+	case DELETE_SESSION:
+		s11sdnODLnb_entry->op_id = delete_count * 1000 +
+				post_thread_id * 10 +
+				DELETE_SESSION;
+		++delete_count;
+		break;
+	default:
+		printf("Error: UNKNOWN Message Type: %d\n",
+				s11_mtyp);
+		return EXIT_FAILURE;
+
+	}
+
+	add_nb_op_id(s11sdnODLnb_entry->op_id);
+	rte_ring_enqueue(sdnODLnbif_ring[post_thread_id],
+			(void *) s11sdnODLnb_entry);
 
 	return ret;
 }
 
+
 /**
- * @brief entry point for sdn post thread on northbound interface
- * @param arg
- * unused
- * @return
- * 0 indicates success
- */
-static int
-do_sdnODLnbif(__attribute__ ((unused)) void *arg)
-{
-	printf("do_sdnODLnbif polling sdnODLnbif_ring\n");
+ * @brief
+ * initializes curl handlers
+ * @param curl
+ * curl handler to initialize
+ * @param list
+ * curl list for use in http header
+ * @param request
+ * request type, e.g. POST or GET
+ * @param uri_path
+ * http path, portion that follows ip/uri:port
+ * @param ip
+ * destination ip address for curl operation
+ * @param port
+ * destination port for curl operation
+ * @param write_callback
+ * callback to handle any response from curl operation
+  */
+static void
+init_curl(CURL **curl, struct curl_slist **list, const char *request,
+		const char *uri_path, const struct in_addr ip,
+		const uint16_t port, curl_write_callback write_callback) {
+	char uri[256];
+	*curl = curl_easy_init();
+	if (!*curl)
+		rte_panic("curl_easy_init failed\n");
+	curl_easy_reset(*curl);
+
+	DO_CHECK_CURL_EASY_SETOPT(*curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+	DO_CHECK_CURL_EASY_SETOPT(*curl, CURLOPT_USERPWD, UIDPWD);
+	DO_CHECK_CURL_EASY_SETOPT(*curl, CURLOPT_CUSTOMREQUEST, request);
+	DO_CHECK_CURL_EASY_SETOPT(*curl, CURLOPT_HTTPHEADER, *list);
+	DO_CHECK_CURL_EASY_SETOPT(*curl, CURLOPT_WRITEFUNCTION, write_callback);
+	snprintf(uri, sizeof(uri), "http://%s:%"PRIu16"%s", inet_ntoa(ip),
+			port, uri_path);
+	DO_CHECK_CURL_EASY_SETOPT(*curl, CURLOPT_URL, uri);
+}
+
+
+static void *
+dequeue_and_post(void *ptr) {
+	unsigned id = *(unsigned *)ptr;
 	struct sdnODLnbif_ring_entry_t *sdnODLnbif_entry;
 	int ret;
 	while (1) {
 		do {
-			ret = rte_ring_dequeue(sdnODLnbif_ring,
+			ret = rte_ring_dequeue(sdnODLnbif_ring[id],
 					(void **) &sdnODLnbif_entry);
 		} while (ret);
-		sdnODLpost(sdnODLnbif_entry);
+		sdnODLpost(curlnbhndl[id], sdnODLnbif_entry);
+		cp_stats.nb_out[id]++;
+		rte_mempool_put(nb_mempool[id], sdnODLnbif_entry);
+	}
+	return NULL;
+}
 
-		if (sdnODLnbif_entry->sdnODLnbif_msgtyp == CREATE_SESSION)
-			rte_mempool_put(create_mempool, sdnODLnbif_entry);
-		else if (sdnODLnbif_entry->sdnODLnbif_msgtyp == MODIFY_BEARER)
-			rte_mempool_put(modify_mempool, sdnODLnbif_entry);
-		else if (sdnODLnbif_entry->sdnODLnbif_msgtyp == DELETE_SESSION)
-			rte_mempool_put(delete_mempool, sdnODLnbif_entry);
+int
+do_sdnODLnbif(__attribute__ ((unused)) void *arg)
+{
+	unsigned id[NUM_CURL_POST_PTHREADS];
+	unsigned i;
+	int ret;
+	for (i = 0; i < NUM_CURL_POST_PTHREADS; ++i) {
+		id[i] = i;
+		ret = pthread_create(&post_thread[i], NULL, dequeue_and_post,
+				&id[i]);
+		if (ret)
+			rte_panic("post_thread pthread_create failed: %s\n",
+					strerror(ret));
+	}
+	for (i = 0; i < NUM_CURL_POST_PTHREADS; ++i) {
+		ret = pthread_join(post_thread[i], NULL);
+		if (ret)
+			rte_panic("pthread_join pthread_create failed: %s\n",
+					strerror(ret));
 	}
 	return ret;
 }
@@ -522,7 +545,8 @@ consume_topology_output(char *ptr, size_t size, size_t nmemb,
 		if (dpn_id == NULL) {
 			set_dpn_id(json_object_get_string(dpn_id_jobj));
 			/* TODO: maintain a list of DPNs to allow multiple
-			 * connections */
+			 * connections
+			 */
 			break;
 		}
 	}
@@ -533,7 +557,9 @@ consume_topology_output(char *ptr, size_t size, size_t nmemb,
 }
 
 
-int set_dpn_id(const char *dpn_id_from_json) {
+int
+set_dpn_id(const char *dpn_id_from_json)
+{
 	if (dpn_id != NULL && dpn_id_from_json != NULL)
 		return -1;
 	if (dpn_id != NULL && dpn_id_from_json == NULL) {
@@ -568,109 +594,64 @@ get_topology(void) {
 
 }
 
-/**
- * @brief
- * initializes curl handlers
- * @param curl
- * curl handler to initialize
- * @param list
- * curl list for use in http header
- * @param request
- * request type, e.g. POST or GET
- * @param uri_path
- * http path, portion that follows ip/uri:port
- * @param ip
- * destination ip address for curl operation
- * @param port
- * destination port for curl operation
- * @param write_callback
- * callback to handle any response from curl operation
- */
-static void
-init_curl(CURL **curl, struct curl_slist **list, const char *request,
-		const char *uri_path, const struct in_addr ip,
-		const uint16_t port, curl_write_callback write_callback) {
-	char uri[256];
-
-	*curl = curl_easy_init();
-	if (!*curl)
-		rte_panic("curl_easy_init failed\n");
-
-	curl_easy_reset(*curl);
-	*list = curl_slist_append(*list, CONTENT_TYPE_HEADER);
-	*list = curl_slist_append(*list, "Expect:");
-
-	DO_CHECK_CURL_EASY_SETOPT(*curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-	DO_CHECK_CURL_EASY_SETOPT(*curl, CURLOPT_USERPWD, UIDPWD);
-
-	DO_CHECK_CURL_EASY_SETOPT(*curl, CURLOPT_CUSTOMREQUEST, request);
-	DO_CHECK_CURL_EASY_SETOPT(*curl, CURLOPT_HTTPHEADER, *list);
-	DO_CHECK_CURL_EASY_SETOPT(*curl, CURLOPT_WRITEFUNCTION, write_callback);
-
-	snprintf(uri, sizeof(uri), "http://%s:%"PRIu16"%s", inet_ntoa(ip),
-			port, uri_path);
-
-	DO_CHECK_CURL_EASY_SETOPT(*curl, CURLOPT_URL, uri);
-}
-
 void
 sdnODLnbinit(void)
 {
-
+	char name[64];
+	unsigned i;
 	rte_errno = 0;
 
-	create_mempool = rte_mempool_create("create_mempool",
-			S11_OBJ_MEMPOOL_SIZE,
-			sizeof(struct sdnODLnbif_ring_entry_t),
-			SDN_NB_CACHE_SIZE, 0, NULL, NULL, NULL, NULL,
-			rte_socket_id(), MEMPOOL_F_NO_CACHE_ALIGN);
-	if (rte_errno || !create_mempool) {
-		rte_panic("Cannot create create_mempool - %s (%d)\n",
-				rte_strerror(rte_errno), rte_errno);
-	}
+	curlnbheaders = curl_slist_append(curlnbheaders, CONTENT_TYPE_HEADER);
+	curlnbheaders = curl_slist_append(curlnbheaders, "Expect:");
 
-	modify_mempool = rte_mempool_create("modify_mempool",
-				S11_OBJ_MEMPOOL_SIZE,
+	for (i = 0; i < NUM_CURL_POST_PTHREADS; ++i) {
+		snprintf(name, sizeof(name), "nb_mempool_%u", i);
+		nb_mempool[i] = rte_mempool_create(name,
+				SDN_NB_MAX_QUEUE,
 				sizeof(struct sdnODLnbif_ring_entry_t),
-				SDN_NB_CACHE_SIZE, 0, NULL, NULL, NULL, NULL,
+				0, 0, NULL, NULL, NULL, NULL,
 				rte_socket_id(), MEMPOOL_F_NO_CACHE_ALIGN);
-	if (rte_errno || !modify_mempool)
-		rte_panic("Cannot create modify_mempool - %s (%d)\n",
-				rte_strerror(rte_errno), rte_errno);
+		if (rte_errno || nb_mempool[i] == NULL) {
+			rte_panic("Cannot create nb_mempool - %s (%d)\n",
+					rte_strerror(rte_errno), rte_errno);
+		}
 
-
-	delete_mempool = rte_mempool_create("delete_mempool",
-				S11_OBJ_MEMPOOL_SIZE,
-				sizeof(struct sdnODLnbif_ring_entry_t),
-				SDN_NB_CACHE_SIZE, 0, NULL, NULL, NULL, NULL,
-				rte_socket_id(), MEMPOOL_F_NO_CACHE_ALIGN);
-	if (rte_errno || !delete_mempool)
-		rte_panic("Cannot create delete_mempool - %s (%d)\n",
-				rte_strerror(rte_errno), rte_errno);
-
-
-	sdnODLnbif_ring = rte_ring_create("sdnODLnbif_ring", SDN_NB_RING_SIZE,
+		snprintf(name, sizeof(name), "sdnODLnbif_ring_%u", i);
+		sdnODLnbif_ring[i] = rte_ring_create(name,
+				SDN_NB_MAX_QUEUE,
 				rte_lcore_to_socket_id(cp_params.sdn_lcore_id),
 				RING_F_SP_ENQ | RING_F_SC_DEQ);
+		if (sdnODLnbif_ring[i] == NULL) {
+			rte_panic("%s create failed: %s", name,
+					rte_strerror(abs(rte_errno)));
+		}
 
-	init_curl(&curlnbhndl, &curlnbheaders, POST,
-			SDN_SESSION_BEARER_URI_PATH,
-			fpc_ip, fpc_port,
-			&consume_output);
+		init_curl(&curlnbhndl[i], &curlnbheaders, POST,
+				SDN_SESSION_BEARER_URI_PATH,
+				fpc_ip, fpc_port,
+				&consume_output);
+
+		DO_CHECK_CURL_EASY_SETOPT(curlnbhndl[i],
+				CURLOPT_TCP_KEEPALIVE, 1L);
+	}
+
+	topology_list = curl_slist_append(topology_list, CONTENT_TYPE_HEADER);
 	init_curl(&curl_topology, &topology_list, GET,
 			SDN_TOPOLOGY_URI_PATH,
 			fpc_ip, fpc_port,
 			&consume_topology_output);
+	bind_client_list = curl_slist_append(bind_client_list,
+			CONTENT_TYPE_HEADER);
 	init_curl(&curl_bind_client, &bind_client_list, POST,
 			BIND_CLIENT_URI_PATH,
 			fpc_ip, fpc_port,
 			&consume_bind_client_output);
-	init_curl(&curl_unbind_client, &bind_unclient_list, POST,
+	unbind_client_list = curl_slist_append(unbind_client_list,
+			CONTENT_TYPE_HEADER);
+	init_curl(&curl_unbind_client, &unbind_client_list, POST,
 			UNBIND_CLIENT_URI_PATH,
 			fpc_ip, fpc_port,
 			&consume_output_unbind_client);
-
-	rte_eal_remote_launch(do_sdnODLnbif, NULL, cp_params.sdn_lcore_id);
 
 	bind_client();
 
@@ -680,6 +661,9 @@ sdnODLnbinit(void)
 void
 sdnODLcleanup(void)
 {
+	static int do_once;
+	unsigned i;
+
 	char sdnODLjobjpost[JSON_BUF_SZ];
 	snprintf(sdnODLjobjpost, JSON_BUF_SZ, UNBIND_CLIENT_FORMAT_STR,
 			client_id);
@@ -687,8 +671,6 @@ sdnODLcleanup(void)
 	DO_CHECK_CURL_EASY_SETOPT(curl_unbind_client, CURLOPT_POSTFIELDS,
 			sdnODLjobjpost);
 	curl_easy_perform(curl_unbind_client);
-
-	static int do_once = 0;
 
 	if (!do_once) {
 		do_once = 1;
@@ -699,7 +681,9 @@ sdnODLcleanup(void)
 		curl_easy_cleanup(curl_bind_client);
 		curl_slist_free_all(bind_client_list);
 
-		curl_easy_cleanup(curlnbhndl);
+		for (i = 0; i < NUM_CURL_POST_PTHREADS; ++i)
+			curl_easy_cleanup(curlnbhndl[i]);
+
 		curl_slist_free_all(curlnbheaders);
 	}
 }

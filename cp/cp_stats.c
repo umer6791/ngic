@@ -20,6 +20,8 @@
 #include <string.h>
 
 #ifdef SDN_ODL_BUILD
+#include <rte_ring.h>
+
 #include "sdnODLnbcurl.h"
 #endif
 #include "cp_stats.h"
@@ -70,8 +72,24 @@ static uint64_t stats_time(void)
  */
 static uint64_t stats_nb(void)
 {
-	return (cp_stats.nb_out > cp_stats.nb_in) ?
-			cp_stats.nb_out - cp_stats.nb_in : 0;
+	uint64_t nb_out = 0;
+	unsigned i;
+	for (i = 0; i < NUM_CURL_POST_PTHREADS; ++i)
+		nb_out += cp_stats.nb_out[i];
+	return (nb_out > cp_stats.nb_in) ? nb_out - cp_stats.nb_in : 0;
+}
+
+/**
+ * @brief callback used to display number of northbound messages queued
+ * @return number of northbound messages queued
+ */
+static uint64_t stats_nb_rings(void)
+{
+	uint64_t total = 0;
+	unsigned i;
+	for (i = 0; i < NUM_CURL_POST_PTHREADS; ++i)
+		total += rte_ring_count(sdnODLnbif_ring[i]);
+	return total;
 }
 #endif
 
@@ -85,8 +103,7 @@ struct stat_entry_t {
 	uint8_t spacing;	/** variable length stat entry specifier */
 	union {
 		uint64_t *value;	/** value used by stat */
-		uint64_t (*lambda)(void); 	/** stat callback
-						calculation function */
+		uint64_t (*lambda)(void);	/** stat callback function */
 	};
 	const char *top;	/** top collumn stat name string */
 	const char *bottom;	/** bottom collumn stat name string */
@@ -97,11 +114,9 @@ struct stat_entry_t {
 #define DEFINE_LAMBDA_STAT(spacing, function, top, bottom) \
 	{LAMBDA, spacing, {.lambda = function}, top, bottom}
 #define PRINT_STAT_ENTRY_HEADER(entry_index, header) \
-	do {\
 		printf("%*s ",\
 			stat_entries[entry_index].spacing, \
-			stat_entries[entry_index].header); \
-	} while (0)
+			stat_entries[entry_index].header)
 
 /**
  * statistic entry definitions
@@ -124,6 +139,7 @@ struct stat_entry_t stat_entries[] = {
 	DEFINE_VALUE_STAT(8, &cp_stats.ddn_ack, "ddn", "ack"),
 #ifdef SDN_ODL_BUILD
 	DEFINE_LAMBDA_STAT(8, stats_nb, "", "nb"),
+	DEFINE_LAMBDA_STAT(8, stats_nb_rings, "nb", "rings"),
 #endif
 };
 

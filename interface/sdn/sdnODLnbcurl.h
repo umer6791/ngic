@@ -31,6 +31,9 @@
 #define CREATE_OPID_NBSPACE	(LDB_ENTRIES_DEFAULT*CREATE_OPID_IDX*OPID_MASK)
 #define MODIFY_OPID_NBSPACE	(LDB_ENTRIES_DEFAULT*MODIFY_OPID_IDX*OPID_MASK)
 #define DELETE_OPID_NBSPACE	(LDB_ENTRIES_DEFAULT*DELETE_OPID_IDX*OPID_MASK)
+#define NUM_CURL_POST_PTHREADS  (20)
+#define SDN_NB_MAX_QUEUE        (1024)
+
 
 #define POST "POST"
 #define GET  "GET"
@@ -159,7 +162,7 @@
 "	\"input\": {\n" \
 "		\"client-id\": \"%"PRI_CLIENT_ID"\"\n" \
 "	}\n" \
-"} \n"
+"}\n"
 
 /* DDN ACK not yet implemented */
 /* TODO: verify op-id is int instead of string (as is with other messages) */
@@ -243,6 +246,8 @@ enum http_status {
 };
 
 extern char *dpn_id;
+extern struct rte_ring *sdnODLnbif_ring[NUM_CURL_POST_PTHREADS];
+
 /**
  *
  * @param set_dpn_id
@@ -307,6 +312,16 @@ s11sdnODLprocess(enum s11_msgtype s11_mtyp, uint64_t sess_id,
 		uint32_t assigned_ip, uint32_t remote_address,
 		uint32_t local_address, uint32_t remote_teid,
 		uint32_t local_teid, uint64_t imsi, uint8_t ebi);
+
+/**
+ * @brief entry point for sdn post thread on northbound interface
+ * @param arg
+ * unused
+ * @return
+ * 0 indicates success
+ */
+int
+do_sdnODLnbif(__attribute__ ((unused)) void *arg);
 
 #endif
 
