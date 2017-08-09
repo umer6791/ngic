@@ -14,67 +14,28 @@
  * limitations under the License.
  */
 
-#ifndef _CDR_H
-#define _CDR_H
+#ifndef _SESION_CDR_H
+#define _SESION_CDR_H
 /**
  * @file
  * This file contains function prototypes of User data
- * PCC and ADC charging records.
+ * charging per session records.
  */
 #include "main.h"
 
+
 /**
- * Initialize Charging data record file.
+ * Open Session Charging data record file.
  */
 void
-cdr_init(void);
+sess_cdr_init(void);
 
 /**
- *
- * @param addr
- *	IP Address
- * @return
- *	IP address represented as string in statically allocated buffer
- *
- * This function is not thread-safe
- */
-const char *
-iptoa(struct ip_addr addr);
-
-
-/**
- * Export PCC record to file
- * @param pcc_rule
- *	PCC rule.
- * @param cdr
- *	charge data record.
- * @param session
- *	bearer session info.
- *
- * @return
- * Void
+ * Clear the record file content.
  */
 void
-export_session_pcc_record(struct dp_pcc_rules *pcc_rule,
-					struct ipcan_dp_bearer_cdr *cdr,
-					struct dp_session_info *session);
+sess_cdr_reset(void);
 
-/**
- * Export ADC record to file
- * @param adc_rule
- *	ADC rule.
- * @param cdr
- *	charge data record.
- * @param session
- *	bearer session info.
- *
- * @return
- * Void
- */
-void
-export_session_adc_record(struct adc_rules *adc_rule,
-					struct ipcan_dp_bearer_cdr *cdr,
-					struct dp_session_info *session);
 /**
  * Export CDR record to file.
  * @param session
@@ -93,4 +54,4 @@ export_session_adc_record(struct adc_rules *adc_rule,
 void
 export_cdr_record(struct dp_session_info *session, char *name,
 			uint32_t id, struct ipcan_dp_bearer_cdr *charge_record);
-#endif /* _CDR_H */
+#endif /* _SESION_CDR_H */

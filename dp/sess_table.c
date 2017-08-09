@@ -33,6 +33,7 @@
 #include "acl.h"
 #include "interface.h"
 #include "cdr.h"
+#include "session_cdr.h"
 #include "meter.h"
 
 #define SESS_CREATE 0

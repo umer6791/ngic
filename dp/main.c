@@ -28,6 +28,7 @@
 #include "main.h"
 #include "interface.h"
 #include "cdr.h"
+#include "session_cdr.h"
 
 /**
  * Main function.
@@ -52,6 +53,8 @@ int main(int argc, char **argv)
 	dp_init(argc, argv);
 
 	cdr_init();
+
+	sess_cdr_init();
 
 	/* Pipeline Init */
 	epc_init_packet_framework(app.sgi_port, app.s1u_port);

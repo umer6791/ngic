@@ -31,6 +31,7 @@ APP = ngic_dataplane
 SRCS-y := main.c\
 	pkt_handler.c\
 	cdr.c\
+	session_cdr.c\
 	config.c\
 	init.c\
 	dataplane.c\
