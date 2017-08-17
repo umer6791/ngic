@@ -117,6 +117,14 @@ cdr_time_cb(struct dp_session_info *session,
 }
 
 static const char *
+cdr_state_cb(struct dp_session_info *session,
+		struct chrg_data_vol *vol,
+		struct dp_pcc_rules *pcc_rule,
+		struct adc_rules *adc_rule) {
+	return "EVENT";
+}
+
+static const char *
 ue_ip_cb(struct dp_session_info *session,
 		struct chrg_data_vol *vol,
 		struct dp_pcc_rules *pcc_rule,
@@ -315,6 +323,7 @@ tarriff_time_cb(struct dp_session_info *session,
 struct cdr_field_t cdr_fields[NUM_CDR_FIELDS] = {
 		DEFINE_VALUE("record", &cdr_count),
 		[CDR_TIME_FIELD_INDEX] = DEFINE_CB_STR("time", cdr_time_cb),
+		DEFINE_CB_STR("state", cdr_state_cb),
 		DEFINE_CB_STR("ue_ip", ue_ip_cb),
 		DEFINE_CB_64("dl_pkt_cnt", dl_pkt_cnt_cb),
 		DEFINE_CB_64("dl_bytes", dl_byptes_cb),
