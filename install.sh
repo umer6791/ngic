@@ -154,8 +154,9 @@ install_libs()
 		return
 	fi
 	sudo apt-get update
-	sudo apt-get -y install curl build-essential linux-headers-$(uname -r) git unzip libpcap0.8-dev gcc libjson0-dev\
-		make libc6 libc6-dev g++-multilib libzmq3-dev libcurl4-openssl-dev
+	sudo apt-get -y install curl build-essential linux-headers-$(uname -r) \
+		git unzip libpcap0.8-dev gcc libjson0-dev make libc6 libc6-dev \
+		g++-multilib libzmq3-dev libcurl4-openssl-dev libssl-dev
 	touch .download
 }
 

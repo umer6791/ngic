@@ -23,6 +23,7 @@
 
 #include "main.h"
 #include "cdr.h"
+#include "master_cdr.h"
 #include "pipeline/epc_packet_framework.h"
 
 /* app config structure */
@@ -125,6 +126,11 @@ static inline void dp_print_usage(void)
 			DESCRIPTION_WIDTH,
 			"CDR file path location.");
 
+	printf("| %-*s | %-*s | %-*s |\n",
+			ARGUMENT_WIDTH,    "--master_cdr",
+			PRESENCE_WIDTH,    "OPTIONAL",
+			DESCRIPTION_WIDTH,
+			"CDR Master file.");
 
 	printf("+-------------------+-------------+"
 			"--------------------------------------------+\n");
@@ -235,6 +241,7 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 		{"iface", required_argument, 0, 'd'},
 		{"stats", required_argument, 0, 't'},
 		{"cdr_path", required_argument, 0, 'a'},
+		{"master_cdr", required_argument, 0, 'e'},
 		{NULL, 0, 0, 0}
 	};
 
@@ -415,6 +422,9 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 			break;
 		case 'a':
 			set_cdr_path(optarg);
+			break;
+		case 'e':
+			set_master_cdr_file(optarg);
 			break;
 		default:
 			dp_print_usage();

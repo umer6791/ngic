@@ -31,6 +31,7 @@ APP = ngic_dataplane
 SRCS-y := main.c\
 	pkt_handler.c\
 	cdr.c\
+	master_cdr.c\
 	session_cdr.c\
 	config.c\
 	init.c\
@@ -170,7 +171,7 @@ LDFLAGS += -L$(RTE_SRCDIR)/../lib/libsponsdn/libsponsdn/x86_64-native-linuxapp-g
 
 LDFLAGS += -L$(HYPERSCANDIR)/build/lib
 
-LDFLAGS += -lexpressionutil -lhs -lhs_runtime -lstdc++ -lm
+LDFLAGS += -lexpressionutil -lhs -lhs_runtime -lstdc++ -lm -lcrypto
 
 LDFLAGS += -lrte_pmd_af_packet
 

@@ -37,6 +37,7 @@
 #include <rte_debug.h>
 
 #include "cdr.h"
+#include "master_cdr.h"
 #include "util.h"
 
 #ifdef SDN_ODL_BUILD
@@ -311,9 +312,9 @@ tarriff_time_cb(struct dp_session_info *session,
 	.cb_str = func}
 
 /* define cdr fields */
-struct cdr_field_t cdr_fields[] = {
+struct cdr_field_t cdr_fields[NUM_CDR_FIELDS] = {
 		DEFINE_VALUE("record", &cdr_count),
-		DEFINE_CB_STR("time", cdr_time_cb),
+		[CDR_TIME_FIELD_INDEX] = DEFINE_CB_STR("time", cdr_time_cb),
 		DEFINE_CB_STR("ue_ip", ue_ip_cb),
 		DEFINE_CB_64("dl_pkt_cnt", dl_pkt_cnt_cb),
 		DEFINE_CB_64("dl_bytes", dl_byptes_cb),
@@ -432,7 +433,7 @@ set_cdr_path(const char *path)
 		strcat(cdr_path, "/");
 }
 
-static void
+void
 create_sys_path(char *path)
 {
 	DIR *dir = opendir(path);
@@ -472,10 +473,10 @@ create_new_cdr_file(void)
 		rte_panic("Failed to generate CDR timestamp\n");
 
 #ifdef SDN_ODL_BUILD
-	ret = snprintf(filename, PATH_MAX, "%s%s_%s"CDR_CSV_EXTENSION, cdr_path,
+	ret = snprintf(filename, PATH_MAX, "%s%s_%s"CDR_CUR_EXTENSION, cdr_path,
 			node_id, timestamp);
 #else
-	ret = snprintf(filename, PATH_MAX, "%s%s"CDR_CSV_EXTENSION, cdr_path,
+	ret = snprintf(filename, PATH_MAX, "%s%s"CDR_CUR_EXTENSION, cdr_path,
 			timestamp);
 #endif
 
@@ -501,6 +502,18 @@ create_new_cdr_file(void)
 					strerror(errno), errno);
 
 	export_cdr_field_headers();
+}
+
+void
+cdr_close(void)
+{
+	if (cdr_file) {
+		FILE *old_cdr_file = cdr_file;
+		cdr_file = stderr;
+
+		fclose(old_cdr_file);
+		finalize_cur_cdrs(cdr_path);
+	}
 }
 
 void

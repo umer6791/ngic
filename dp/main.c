@@ -29,6 +29,7 @@
 #include "interface.h"
 #include "cdr.h"
 #include "session_cdr.h"
+#include "master_cdr.h"
 
 /**
  * Main function.
@@ -51,6 +52,8 @@ int main(int argc, char **argv)
 
 	/* DP Init */
 	dp_init(argc, argv);
+
+	finalize_cur_cdrs(cdr_path);
 
 	sess_cdr_init();
 

@@ -44,6 +44,10 @@ if [ -n "${CDR_PATH}" ]; then
 	ARGS="$ARGS --cdr_path $CDR_PATH"
 fi
 
+if [ -n "${MASTER_CDR}" ]; then
+	ARGS="$ARGS --master_cdr $MASTER_CDR"
+fi
+
 echo $ARGS | sed -e $'s/--/\\\n\\t--/g'
 
 USAGE=$"Usage: run.sh [ debug | log ]

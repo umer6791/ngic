@@ -23,8 +23,12 @@
  */
 #include "main.h"
 
+#define CDR_CUR_EXTENSION ".cur"
 #define CDR_CSV_EXTENSION ".csv"
 #define DEFAULT_CDR_PATH  "./cdr/"
+
+#define CDR_TIME_FIELD_INDEX 1
+#define NUM_CDR_FIELDS       16
 
 #define RECORD_TIME_FORMAT "%Y%m%d%H%M%S"
 #define RECORD_TIME_LENGTH 16 /* buffer size for RECORD_TIME_FORMAT-ed string */
@@ -59,13 +63,26 @@ struct cdr_field_t {
 	};
 };
 
-extern struct cdr_field_t cdr_fields[];
+extern struct cdr_field_t cdr_fields[NUM_CDR_FIELDS];
+extern char *cdr_path;
+
+/**
+* Creates file system path recursively
+*/
+void
+create_sys_path(char *path);
 
 /**
  * Initialize Charging data record file.
  */
 void
 cdr_init(void);
+
+/**
+ * Closes current cdr file and redirects any remaining output to stderr
+ */
+void
+cdr_close(void);
 
 /**
  * Sets configurable CDR path based on argument. String stored is ends with '/'.
