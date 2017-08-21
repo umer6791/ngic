@@ -1,16 +1,16 @@
-# Copyright (c) 2017 Intel Corporation
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+Copyright (c) 2017 Intel Corporation
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 
 NGIC Installation Guide
 =======================
@@ -45,13 +45,13 @@ NGIC Installation Guide
 ```
 
 * Data Plane and Control plane can run on two different systems using SDN or UDP interfaces
-* If DataPlane and Control plane run on the same system, IPC can be used for communication
 * CP and DP can be run in a Virtualized Environment.
 * With SDN communication, CP to SDN works on FPC and SDN to DP works on ZMQ.
 * System3 and System4 are the traffic generators connected to VNF over 10G interfaces.
 * System5 hosts the MME. Currently NGIC VNF has been tested with ng4t MME.
 * MME sends commands to ControlPlane over 1G interface. This can be higher
 speed interface also.
+
 
 2. Configuration
 -----------------
@@ -157,7 +157,109 @@ Dataplane supported command line arguments are:
 
 Please refer to `dp/run.sh` for example configuration.
 
-#### 2.4 Simulated CP config (Optional):
+#### 2.4 Interface Configuration
+
+The file `config/interface.cfg` defines the various configurable interface
+parameters. The diagram below displays the components and interfaces along the
+direction of messages. Listed below the diagram is the descriptions of
+[Components](./INSTALL.MD#2-4-1-components) and
+[Interfaces](./INSTALL.MD#2-4-2-interfaces).
+
+
+    +------------------------------------------------------------+
+    |                           CP                               |
+    |                       +----------------------------------------------+
+    | cp_comm_ip:port       |  HTTP-POST    cp_nb_server_ip:port |         |
+    +-----v-----^-----------|------v-----------------^-----------+         |
+          v     ^           |      v                 ^                     |
+          v     ^           |      v HTTP            ^ HTTP                |
+          v     ^           |      v                 ^                     |
+          v     ^           | +----v-----------------^------------+        |
+          v     ^           | | fpc_ip:port                       |        |
+          v     ^           | |                                   |        |
+          v     ^           | |            FPC - Karaf            |        |
+          v     ^           | +----v----------------------^-------+        |
+          v     ^           |      v                      ^                |
+          v     ^           |      v ZMQ                  ^           FPC  |
+          v UDP ^           |      v                      ^           SDN  |
+          v     ^           |      v                      ^                |
+          v     ^           | +----v----------------------^-------+        |
+          v     ^           | |    v     ZMQ FORWARDER    ^       |        |
+          v     ^           | |    v                      ^       |        |
+          v     ^           | | zmq_sub_ip:port   zmq_pub_ip:port |        |
+          v     ^           | +----^----------------------v-------+        |
+          v     ^           |      ^                      v                |
+          v     ^           |      ^ ZMQ                  v ZMQ            |
+          v     ^           |      ^                      v                |
+    +-----v-----^-----------|------^----------------------v------+         |
+    | dp_comm_ip:port       |                COMM_ZMQ            |         |
+    |                       +----------------------------------------------+
+    |                           DP                               |
+    +------------------------------------------------------------+
+
+##### 2.4.1 Components
+
+- FPC - SDN Controller: Interfaces contained within this component are used
+    only when NGIC is built with the `DSDN_ODL_BUILD` CFLAG set in
+    `ng-core_cfg.mk`.
+
+- ZMQ FORWARDER: the instance of the forwarder_device.py script. ***This
+    component should be co-located with the FPC Karaf component.***
+
+- FPC - Karaf: The ODL Karaf instance running the FPC protocol. ***This
+    component should be co-located with the FPC Karaf component.***
+
+- CP: Control Plane
+
+    HTTP-POST: the component of the CP that sends HTTP POST messages to the
+    fpc_ip:port of the Karaf instance.
+
+- DP: Data Plane
+
+    COMM_ZMQ: the component of the DP that sends/receives messages from the
+    ZMQ FORWARDER
+
+##### 2.4.2 Interfaces
+
+- `zmq_sub_ip` & `zmq_sub_port`: the ip:port of the zmq subscriber interface of
+the ZMQ FORWARDER device.
+
+- `zmq_pub_ip` & `zmq_pub_port`: the ip:port of the zmq publisher interface of
+the ZMQ FORWARDER device.
+
+- `dp_comm_ip` & `dp_comm_port`: the ip:port of the DP UDP interface used for
+    direct communication by the DP to and from the CP.
+
+- `cp_comm_ip` & `cp_comm_port`: the ip:port of the CP UDP interface used for
+    direct communication by the CP to and from the DP.
+
+- `fpc_ip` & `fpc_port`: the ip:port of the FPC Karaf server component to
+    receive HTTP POST Requests from the CP.
+
+- `cp_nb_server_ip` & `cp_nb_server_port`: the ip:port of the CP component to
+    receive, process, and reply to config-result-notification (HTTP POST)
+    messages from the FPC Karaf component.
+
+
+##### 2.4.3 Co-located Configuration
+For a co-located NGIC deployment along with the FPC Controller, each IP address
+parameter in the `config/interface.cfg` file may be set to the loopback
+address `127.0.0.1`.
+
+##### 2.4.4 FPC Port Parameters
+Each of the FPC port values have been defined by the FPC Agent Opendaylight
+project. These values should not be changed without modification to the default
+configuration ofthe FPC components. These parameters and values include
+`zmq_sub_port=5560`, `zmq_pub_port=5559` and `fpc_port=8181`. More information
+can be found at the [FPC GitHub page](https://github.com/opendaylight/fpc).
+
+
+##### 2.4.5 NGIC Port Parameters
+The `dp_comm_port`, `cp_comm_port`, and `cp_nb_server_port` parameters may
+utilize any available ports on the respective systems.
+
+
+#### 2.5 Simulated CP config (Optional):
 This option can be used to test Dataplane with a simulated ControlPlane
 without the need of MME.
 Please enable SIMU_CP in dp/Makefile to use this.
@@ -416,6 +518,7 @@ Dataplane has been tested with SRIOV and OVS with SIMU_CP configuration:
 
     -   Open `/etc/default/grub` configuration file.
     -   Append `iommu=pt intel_iommu=on` to the `GRUB_CMDLINE_LINUX` entry.
+
 
 4. Generating API documentation
 -------------------------------
