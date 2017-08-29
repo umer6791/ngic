@@ -88,9 +88,14 @@ MME must utilize the predefined filters contained within this file.
 CP dpdk run parameters:
 
 ```text
-    -c coremask                - The control plane requires 2 cores (one dedicated to displaying statistics to console)
+    -c coremask                - An hexadecimal bit mask of the cores to run on. For base
+                                 functionality, the control plane requires a minimum 1 core,
+                                 (or 3 cores if built with SDN_ODL_BUILD). If the display of
+                                 CP statistics is desired, an additional core is required
+                                 for a total of 2 (or 4) cores.
     -n 4                       - Recommend using all available memory channels
-    --socket-mem X,Y           - Memory has been allocated according to NUMA-awareness, suggest using memory on socket corresponding to coremask
+    --socket-mem X,Y           - Memory has been allocated according to NUMA-awareness,
+                                 suggest using memory on socket corresponding to coremask
     --file-prefix cp           - Required for collocated Control and Dataplane
     --no-pci                   - Does not require use of DPDK bound NICs
 ```
