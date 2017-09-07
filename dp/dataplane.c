@@ -29,6 +29,7 @@
 #include "ether.h"
 #include "util.h"
 #include "meter.h"
+#include "acl.h"
 #include <sponsdn.h>
 #include <stdbool.h>
 
@@ -687,8 +688,9 @@ hash_create(const char *name, struct rte_hash **rte_hash,
 	return 0;
 }
 
-void init_hash(void)
+void dp_table_init(void)
 {
+#ifdef DP_TABLE_CONFIG
 	int ret;
 
 	/*
@@ -735,4 +737,49 @@ void init_hash(void)
 	app_mtr_tbl_init();
 	app_filter_tbl_init();
 	app_adc_tbl_init();
+
+	struct dp_id dp_id = { .id = DPN_ID };
+	sprintf(dp_id.name, SDF_FILTER_TABLE);
+	ret = dp_sdf_filter_table_create(dp_id, SDF_FILTER_TABLE_SIZE);
+	if (ret)
+		rte_exit(EXIT_FAILURE,
+			"error in creating SDF filter table %d\n", ret);
+
+	sprintf(dp_id.name, ADC_TABLE);
+	ret = dp_adc_table_create(dp_id, ADC_TABLE_SIZE);
+	if (ret)
+		rte_exit(EXIT_FAILURE,
+			"error in creating ADC table %d\n", ret);
+
+	sprintf(dp_id.name, PCC_TABLE);
+	ret = dp_pcc_table_create(dp_id, PCC_TABLE_SIZE);
+	if (ret)
+		rte_exit(EXIT_FAILURE,
+			"error in creating PCC table %d\n", ret);
+
+	sprintf(dp_id.name, METER_PROFILE_SDF_TABLE);
+	ret = dp_meter_profile_table_create(dp_id,
+				METER_PROFILE_SDF_TABLE_SIZE);
+	if (ret)
+		rte_exit(EXIT_FAILURE,
+			"error in creating Meter profile table %d\n", ret);
+
+	sprintf(dp_id.name, SESSION_TABLE);
+	ret = dp_session_table_create(dp_id, LDB_ENTRIES_DEFAULT);
+	if (ret)
+		rte_exit(EXIT_FAILURE,
+			"error in creating session table %d\n", ret);
+
+	if (dp_sdf_default_entry_add(dp_id, SDF_DEFAULT_DROP_RULE_ID) < 0)
+		rte_exit(EXIT_FAILURE,
+			"error in adding default entry to"
+			" sdf filter table %d\n", ret);
+
+	if (dp_adc_filter_default_entry_add(dp_id) < 0)
+		rte_exit(EXIT_FAILURE,
+			"error in adding default entry to"
+			" adc filter table %d\n", ret);
+#else
+	/*TODO: Will add an API to configure DP Tables */
+#endif
 }

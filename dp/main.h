@@ -150,6 +150,21 @@
 #define HASH_SIZE_FACTOR 1
 #endif
 
+#ifdef DP_TABLE_CONFIG
+#define SDF_FILTER_TABLE "sdf_filter_table"
+#define ADC_TABLE "adc_rule_table"
+#define PCC_TABLE "pcc_table"
+#define SESSION_TABLE "session_table"
+#define METER_PROFILE_SDF_TABLE "meter_profile_sdf_table"
+#define METER_PROFILE_APN_TABLE "meter_profile_apn_table"
+
+#define SDF_FILTER_TABLE_SIZE        (1024)
+#define ADC_TABLE_SIZE               (1024)
+#define PCC_TABLE_SIZE               (1025)
+#define METER_PROFILE_SDF_TABLE_SIZE (2048)
+#define DPN_ID                       (12345)
+#endif /* DP_TABLE_CONFIG */
+
 /**
  * Application configure structure .
  */
@@ -1140,7 +1155,7 @@ hash_create(const char *name, struct rte_hash **rte_hash,
  * @brief initalizes data plane hash tables
  */
 void
-init_hash(void);
+dp_table_init(void);
 
 /**
  * @brief Called by DP to lookup key-value in ADC table.

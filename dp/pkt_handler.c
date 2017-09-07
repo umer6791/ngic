@@ -113,6 +113,13 @@ s1u_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	/* SDF table lookup*/
 	pcc_rule_id = sdf_lookup(pkts, n);
 
+	/* If SDF entrires are not added, default rule_id returned */
+	if (unlikely(pcc_rule_id[0] == SDF_DEFAULT_DROP_RULE_ID)) {
+		/* Intimate the packets to be dropped*/
+		rte_pipeline_ah_packet_drop(p, pkts_mask);
+		return 0;
+	}
+
 #ifdef ADC_UPFRONT
 	/* ADC table lookup*/
 	adc_rule_a = adc_ul_lookup(pkts, n);
@@ -202,6 +209,13 @@ sgi_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	/* SDF table lookup*/
 	pcc_rule_id = sdf_lookup(pkts, n);
 
+	/* If SDF entrires are not added, default rule_id returned */
+	if (unlikely(pcc_rule_id[0] == SDF_DEFAULT_DROP_RULE_ID)) {
+		/* Intimate the packets to be dropped*/
+		rte_pipeline_ah_packet_drop(p, pkts_mask);
+		return 0;
+	}
+
 #ifdef ADC_UPFRONT
 	/* ADC table lookup*/
 	adc_rule_a = adc_dl_lookup(pkts, n);
@@ -216,6 +230,7 @@ sgi_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	 * overwrite the result from filter table.	*/
 	update_adc_rid_from_domain_lookup(adc_rule_a, &adc_rule_b[0], n);
 
+	/* get ADC UE info struct*/
 	/* get ADC UE info*/
 	adc_ue_info_get(pkts, n, adc_rule_a, &adc_ue_info[0], DL_FLOW);
 

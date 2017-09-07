@@ -181,6 +181,7 @@ parse_arg(int argc, char **argv)
 void
 initialize_tables_on_dp(void)
 {
+#ifdef CP_DP_TABLE_CONFIG
 	struct dp_id dp_id = { .id = DPN_ID };
 
 	sprintf(dp_id.name, SDF_FILTER_TABLE);
@@ -203,6 +204,7 @@ initialize_tables_on_dp(void)
 
 	if (session_table_create(dp_id, LDB_ENTRIES_DEFAULT))
 		rte_panic("session_table creation failed\n");
+#endif
 
 }
 
@@ -226,13 +228,17 @@ init_cp(void)
 
 #ifdef SDN_ODL_BUILD
 	if (dpn_id) {
+#ifdef CP_DP_TABLE_CONFIG
 		initialize_tables_on_dp();
+#endif
 		parse_adc_rules();
 	}
 	init_packet_filters();
 	sdnODLnbinit();
 #else
+#ifdef CP_DP_TABLE_CONFIG
 	initialize_tables_on_dp();
+#endif
 	parse_adc_rules();
 	init_packet_filters();
 #endif

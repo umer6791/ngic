@@ -60,7 +60,7 @@ int main(int argc, char **argv)
 	register_worker(s1u_pkt_handler, app.s1u_port);
 
 	iface_module_constructor();
-	init_hash();
+	dp_table_init();
 
 	packet_framework_launch();
 

@@ -152,6 +152,9 @@ CFLAGS += -DHYPERSCAN_DPI
 # Un-comment below line if you have 16 x 1GB hugepages.
 #CFLAGS += -DHUGE_PAGE_16GB
 
+# Un-comment below line to configure DP Tables from DP app.
+CFLAGS += -DDP_TABLE_CONFIG
+
 CFLAGS += -Werror
 CFLAGS += -Wunused-variable
 CFLAGS_config.o := -D_GNU_SOURCE
