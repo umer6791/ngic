@@ -27,7 +27,7 @@
 
 static void *zmqsub_sockctxt;
 static void *zmqsub_socket;
-static char node_id[MAX_NODE_ID_SIZE];
+char node_id[MAX_NODE_ID_SIZE];
 static char network_id[MAX_NETWORK_ID_SIZE];
 static uint8_t dpn_topic_id;
 static uint8_t controller_topic_id;

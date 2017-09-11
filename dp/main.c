@@ -52,8 +52,6 @@ int main(int argc, char **argv)
 	/* DP Init */
 	dp_init(argc, argv);
 
-	cdr_init();
-
 	sess_cdr_init();
 
 	/* Pipeline Init */

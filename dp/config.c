@@ -22,6 +22,7 @@
 #include <rte_ethdev.h>
 
 #include "main.h"
+#include "cdr.h"
 #include "pipeline/epc_packet_framework.h"
 
 /* app config structure */
@@ -118,6 +119,13 @@ static inline void dp_print_usage(void)
 			DESCRIPTION_WIDTH,
 			"log level, 1- Notification, 2- Debug.");
 
+	printf("| %-*s | %-*s | %-*s |\n",
+			ARGUMENT_WIDTH,    "--cdr_path",
+			PRESENCE_WIDTH,    "OPTIONAL",
+			DESCRIPTION_WIDTH,
+			"CDR file path location.");
+
+
 	printf("+-------------------+-------------+"
 			"--------------------------------------------+\n");
 	printf("\n\nExample Usage:\n"
@@ -210,13 +218,14 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 
 	static struct option spgw_opts[] = {
 		{"s1u_ip", required_argument, 0, 'i'},
-		{"s1u_gw_ip", required_argument, 0, 'o'},
-		{"s1u_mask", required_argument, 0, 'q'},
 		{"sgi_ip", required_argument, 0, 's'},
-		{"sgi_gw_ip", required_argument, 0, 'x'},
-		{"sgi_mask", required_argument, 0, 'z'},
 		{"s1u_mac", required_argument, 0, 'm'},
 		{"sgi_mac", required_argument, 0, 'n'},
+		{"s1u_gw_ip", required_argument, 0, 'o'},
+		{"s1u_mask", required_argument, 0, 'q'},
+		{"sgi_gw_ip", required_argument, 0, 'x'},
+		{"sgi_mask", required_argument, 0, 'z'},
+		{"log", required_argument, 0, 'l'},
 		{"s1uc", required_argument, 0, 'u'},
 		{"sgic", required_argument, 0, 'g'},
 		{"bal", required_argument, 0, 'b'},
@@ -225,7 +234,7 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 		{"num_workers", required_argument, 0, 'w'},
 		{"iface", required_argument, 0, 'd'},
 		{"stats", required_argument, 0, 't'},
-		{"log", required_argument, 0, 'l'},
+		{"cdr_path", required_argument, 0, 'a'},
 		{NULL, 0, 0, 0}
 	};
 
@@ -395,16 +404,18 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 			break;
 
 		case 't':
+#ifdef STATS
 			epc_app.core_stats = atoi(optarg);
 			printf("Parsed core_stats:\t%d\n", epc_app.core_stats);
-#ifdef STATS
 			used_coremask |= (1ULL << epc_app.core_stats);
 #else
 			printf("DP compiled without STATS flag in Makefile."
 				" Ignoring stats core assignment");
 #endif
 			break;
-
+		case 'a':
+			set_cdr_path(optarg);
+			break;
 		default:
 			dp_print_usage();
 			return -1;

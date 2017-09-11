@@ -17,6 +17,7 @@
 #define _GNU_SOURCE     /* Expose declaration of tdestroy() */
 #include <search.h>
 
+#include "cdr.h"
 #include "acl.h"
 #include "main.h"
 #include "interface.h"
@@ -1450,6 +1451,7 @@ dp_sdf_filter_entry_add(struct dp_id dp_id, struct pkt_filter *pkt_filter)
 	RTE_SET_USED(dp_id);
 
 	if (is_first == 1) {
+		cdr_init();
 		if (dp_sdf_default_entry_action_modify(dp_id,
 					SDF_DEFAULT_DROP_RULE_ID) < 0)
 			return -1;

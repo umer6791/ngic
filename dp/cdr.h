@@ -23,11 +23,56 @@
  */
 #include "main.h"
 
+#define CDR_CSV_EXTENSION ".csv"
+#define DEFAULT_CDR_PATH  "./cdr/"
+
+#define RECORD_TIME_FORMAT "%Y%m%d%H%M%S"
+#define RECORD_TIME_LENGTH 16 /* buffer size for RECORD_TIME_FORMAT-ed string */
+#define BUFFER_SIZE 4096
+
+
+/* cdr field type callbacks
+ * all callbacks must have the same parameters
+ */
+typedef uint64_t (*cb_64_type) (struct dp_session_info *session,
+		struct chrg_data_vol *vol,
+		struct dp_pcc_rules *pcc_rule,
+		struct adc_rules *adc_rule);
+typedef uint32_t (*cb_32_type) (struct dp_session_info *session,
+		struct chrg_data_vol *vol,
+		struct dp_pcc_rules *pcc_rule,
+		struct adc_rules *adc_rule);
+typedef const char *(*cb_str_type) (struct dp_session_info *session,
+		struct chrg_data_vol *vol,
+		struct dp_pcc_rules *pcc_rule,
+		struct adc_rules *adc_rule);
+
+struct cdr_field_t {
+	const char *header;
+	enum {CDR_VALUE, CDR_CB_64, CDR_CB_32, CDR_CB_STR} type;
+	const char *format_specifier;
+	union {
+		uint64_t *value;
+		cb_64_type cb_64;
+		cb_32_type cb_32;
+		cb_str_type cb_str;
+	};
+};
+
+extern struct cdr_field_t cdr_fields[];
+
 /**
  * Initialize Charging data record file.
  */
 void
 cdr_init(void);
+
+/**
+ * Sets configurable CDR path based on argument. String stored is ends with '/'.
+ * @param path
+ */
+void
+set_cdr_path(const char *path);
 
 /**
  *

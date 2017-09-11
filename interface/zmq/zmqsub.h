@@ -126,6 +126,8 @@ struct zmqbuf {
 };
 #pragma pack()
 
+extern char node_id[MAX_NODE_ID_SIZE];
+
 /**
  * @brief
  * creates zmq socket used for subscriber
