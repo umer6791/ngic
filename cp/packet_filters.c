@@ -189,6 +189,15 @@ install_packet_filter(const packet_filter *new_packet_filter,
 
 	packet_filter *filter = rte_zmalloc_socket(NULL, sizeof(packet_filter),
 	    RTE_CACHE_LINE_SIZE, rte_socket_id());
+	if (filter == NULL) {
+		fprintf(stderr, "Failure to allocate dedicated packet filter "
+				"structure: %s (%s:%d)\n",
+				rte_strerror(rte_errno),
+				__FILE__,
+				__LINE__);
+		return -ENOMEM;
+	}
+
 	memcpy(filter, new_packet_filter, sizeof(packet_filter));
 	uint16_t index = num_packet_filters;
 
@@ -375,7 +384,14 @@ init_packet_filters(void)
 			pf.local_port_high = htons((uint16_t) atoi(entry));
 
 
-		install_packet_filter(&pf, mbr);
+		ret = install_packet_filter(&pf, mbr);
+		if (ret < 0) {
+			rte_panic("Failure to install packet filters: "
+					"%s (%s:%d)\n",
+					rte_strerror(rte_errno),
+					__FILE__,
+					__LINE__);
+		}
 	}
 }
 
@@ -437,6 +453,12 @@ void parse_adc_rules(void)
 	clearerr(adc_rule_file);
 	char *buffer = (char *)rte_malloc_socket(NULL, sizeof(char) * longest_line,
 				RTE_CACHE_LINE_SIZE, rte_socket_id());
+	if (buffer == NULL)
+		rte_panic("Failure to allocate adc file buffer: %s (%s:%d)\n",
+				rte_strerror(rte_errno),
+				__FILE__,
+				__LINE__);
+
 	uint32_t rule_id = 1;
 
 	for (line = 0; line < lines && !feof(adc_rule_file); ++line) {
@@ -539,4 +561,5 @@ void parse_adc_rules(void)
 		print_adc_rule(&entry);
 	}
 	num_adc_rules = rule_id - 1;
+	rte_free(buffer);
 }

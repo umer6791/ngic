@@ -30,6 +30,6 @@ init_nb_listener(void);
 
 
 void
-add_nb_op_id(uint32_t op_id);
+add_nb_op_id(uint64_t op_id);
 
 #endif

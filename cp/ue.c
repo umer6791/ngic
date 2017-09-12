@@ -106,6 +106,12 @@ set_apn_name(apn *an_apn, char *argstr)
 		rte_panic("APN Name argument not set\n");
 	an_apn->apn_name_label = rte_zmalloc_socket(NULL, strlen(argstr),
 	    RTE_CACHE_LINE_SIZE, rte_socket_id());
+	if (an_apn->apn_name_label == NULL)
+		rte_panic("Failure to allocate apn_name_label buffer: "
+				"%s (%s:%d)\n",
+				rte_strerror(rte_errno),
+				__FILE__,
+				__LINE__);
 	an_apn->apn_name_length = strlen(argstr) + 1;
 	/* Don't copy NULL termination */
 	strncpy(an_apn->apn_name_label + 1, argstr, strlen(argstr));
@@ -190,6 +196,14 @@ create_ue_context(gtpv2c_ie *imsi_ie, uint8_t ebi, ue_context **context)
 	if (ret == -ENOENT) {
 		(*context) = rte_zmalloc_socket(NULL, sizeof(ue_context),
 		    RTE_CACHE_LINE_SIZE, rte_socket_id());
+		if (*context == NULL) {
+			fprintf(stderr, "Failure to allocate ue context "
+					"structure: %s (%s:%d)\n",
+					rte_strerror(rte_errno),
+					__FILE__,
+					__LINE__);
+			return GTPV2C_CAUSE_SYSTEM_FAILURE;
+		}
 		(*context)->imsi = imsi;
 		ret = rte_hash_add_key_data(ue_context_by_imsi_hash,
 		    (const void *) &(*context)->imsi, (void *) (*context));
@@ -255,6 +269,14 @@ create_ue_context(gtpv2c_ie *imsi_ie, uint8_t ebi, ue_context **context)
 			pdn = rte_zmalloc_socket(NULL,
 				sizeof(struct pdn_connection_t),
 				RTE_CACHE_LINE_SIZE, rte_socket_id());
+			if (pdn == NULL) {
+				fprintf(stderr, "Failure to allocate PDN "
+						"structure: %s (%s:%d)\n",
+						rte_strerror(rte_errno),
+						__FILE__,
+						__LINE__);
+				return GTPV2C_CAUSE_SYSTEM_FAILURE;
+			}
 			(*context)->pdns[ebi_index] = pdn;
 			(*context)->num_pdns++;
 			pdn->eps_bearers[ebi_index] = bearer;
@@ -263,9 +285,25 @@ create_ue_context(gtpv2c_ie *imsi_ie, uint8_t ebi, ue_context **context)
 	} else {
 		bearer = rte_zmalloc_socket(NULL, sizeof(eps_bearer),
 			RTE_CACHE_LINE_SIZE, rte_socket_id());
+		if (bearer == NULL) {
+			fprintf(stderr, "Failure to allocate bearer "
+					"structure: %s (%s:%d)\n",
+					rte_strerror(rte_errno),
+					__FILE__,
+					__LINE__);
+			return GTPV2C_CAUSE_SYSTEM_FAILURE;
+		}
 		bearer->eps_bearer_id = ebi;
 		pdn = rte_zmalloc_socket(NULL, sizeof(struct pdn_connection_t),
 		    RTE_CACHE_LINE_SIZE, rte_socket_id());
+		if (pdn == NULL) {
+			fprintf(stderr, "Failure to allocate PDN "
+					"structure: %s (%s:%d)\n",
+					rte_strerror(rte_errno),
+					__FILE__,
+					__LINE__);
+			return GTPV2C_CAUSE_SYSTEM_FAILURE;
+		}
 		(*context)->eps_bearers[ebi_index] = bearer;
 		(*context)->pdns[ebi_index] = pdn;
 		(*context)->bearer_bitmap |= (1 << ebi_index);

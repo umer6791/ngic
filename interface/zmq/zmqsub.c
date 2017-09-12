@@ -89,7 +89,7 @@ hex_dump(FILE *fileptr, void *base, void *data, size_t length, int indent) {
 #define PRINT_MEMBER_WIDTH 17
 #define PRINT_MEMBER(m, mem, size) \
 		printf("\t%-*s: %"PRIu##size"\n", PRINT_MEMBER_WIDTH, \
-			#mem, rte_bswap##size(m->mem));\
+			#mem, rte_bswap##size(m->mem))
 
 void print_zmqbuf(struct zmqbuf *buf)
 {
@@ -169,7 +169,7 @@ void print_zmqbuf(struct zmqbuf *buf)
 	{
 		struct assign_topic_t *m = &buf->msg_union.assign_topic_msg;
 
-		puts("\tDDN");
+		puts("\tASSIGN_TOPIC");
 		PRINT_MEMBER(buf, topic_id, 8);
 		PRINT_MEMBER(buf, type, 8);
 		PRINT_MEMBER(m, topic_generated, 32);
@@ -219,7 +219,7 @@ void print_zmqbuf(struct zmqbuf *buf)
 	{
 		struct dpn_status_ack_t *m = &buf->msg_union.dpn_status_ack;
 
-		puts("\tCONTROLLER_STATUS_INDICATION");
+		puts("\tDPN_STATUS_ACK");
 		PRINT_MEMBER(buf, topic_id, 8);
 		PRINT_MEMBER(buf, type, 8);
 		PRINT_MEMBER(m, controller_topic, 32);
@@ -312,7 +312,8 @@ static void zmq_set_network_node_id(uint8_t *node_id_len_ptr)
 static void zmq_assign_conflict(struct zmqbuf *mbuf)
 {
 	/* ASSIGN_TOPIC and ASSIGN_CONFLICT message structures are same as of
-	 * now, so reuse the current buffer and just change the fields */
+	 * now, so reuse the current buffer and just change the fields
+	 */
 	mbuf->type = ASSIGN_CONFLICT;
 	mbuf->msg_union.assign_topic_msg.source = source;
 	zmq_set_network_node_id(
@@ -444,7 +445,8 @@ void check_topic_id_conflict(struct zmqbuf *mbuf)
 			mbuf->msg_union.assign_topic_msg.source != source) {
 		printf("Got ASSIGN Topic with conflict\n");
 		/* This topic id has already been assigned to this DPN.
-		 * So send ASSIGN_CONFLICT */
+		 * So send ASSIGN_CONFLICT
+		 */
 		zmq_assign_conflict(mbuf);
 	}
 }
@@ -455,7 +457,8 @@ void handle_controller_hello(struct zmqbuf *mbuf)
 			mbuf->msg_union.status_indication.status == HELLO) {
 		printf("Got STATUS Indication\n");
 		/* HELLO has arrived from CONTROLLER, so send HELLO to
-		 * controller. The DPN is still in STATUS_WAIT state*/
+		 * controller. The DPN is still in STATUS_WAIT state
+		 */
 		zmq_status_hello();
 		dpn_lifecycle_state = STATUS_WAIT;
 	}
@@ -527,7 +530,7 @@ int dp_lifecycle_process(struct zmqbuf *mbuf, int rc)
 		 */
 		PRINT_ZMQBUF(mbuf, rc);
 		if (mbuf->topic_id == dpn_topic_id)
-				return rc;
+			return rc;
 		break;
 	/* default: ignore message */
 

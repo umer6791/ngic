@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <rte_errno.h>
+
 #include "gtpv2c_set_ie.h"
 
 #define DEFAULT_BEARER_QOS_PRIORITY (15)
@@ -323,6 +325,8 @@ install_packet_filters(eps_bearer *ded_bearer,
 			continue;
 			dp_packet_filter_id = install_packet_filter(&pf,
 				get_br(ded_bearer->qos.qos.dl_mbr));
+			if (dp_packet_filter_id < 0)
+				return GTPV2C_CAUSE_SYSTEM_FAILURE;
 		}
 
 		ded_bearer->num_packet_filters++;
@@ -430,6 +434,15 @@ create_dedicated_bearer(gtpv2c_header *gtpv2c_rx,
 	ded_bearer = brc->context->ded_bearer =
 			rte_zmalloc_socket(NULL, sizeof(eps_bearer),
 					RTE_CACHE_LINE_SIZE, rte_socket_id());
+	if (ded_bearer == NULL) {
+		fprintf(stderr, "Failure to allocate dedicated bearer "
+				"structure: %s (%s:%d)\n",
+				rte_strerror(rte_errno),
+				__FILE__,
+				__LINE__);
+		return GTPV2C_CAUSE_SYSTEM_FAILURE;
+	}
+
 	ded_bearer->pdn = brc->pdn;
 
 	if (install_packet_filters(ded_bearer, brc->tad))

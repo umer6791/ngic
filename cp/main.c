@@ -684,6 +684,10 @@ int main(int argc, char **argv)
 	if (cp_params.stats_core_id != RTE_MAX_LCORE)
 		rte_eal_remote_launch(do_stats, NULL, cp_params.stats_core_id);
 
+#ifdef SDN_ODL_BUILD
+	rte_eal_remote_launch(do_sdnODLnbif, NULL, cp_params.sdn_lcore_id);
+#endif
+
 	lcore_control_plane(NULL);
 
 	rte_eal_mp_wait_lcore();

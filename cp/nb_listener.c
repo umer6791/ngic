@@ -36,7 +36,7 @@
 #include "sdnODLnbcurl.h"
 #include "interface.h"
 
-#define LISTENER_HASH_SIZE 1024
+#define LISTENER_HASH_SIZE (NUM_CURL_POST_PTHREADS*SDN_NB_MAX_QUEUE)
 
 #define HTTP_RESPONSE_OK "HTTP/1.0 200 OK\r\n\r\n"
 #define HTTP_RESPONSE_OK_LEN (sizeof(HTTP_RESPONSE_OK)-1)
@@ -46,17 +46,15 @@ uint64_t listener_hash_entries = 0;
 fd_set fd_set_active;
 
 void
-add_nb_op_id(uint32_t op_id)
+add_nb_op_id(uint64_t op_id)
 {
 	int ret = rte_hash_add_key_data(nb_listener_hash, &op_id, NULL);
 
 	if (ret) {
-		fprintf(stderr, "rte_hash_add_key_data failed for op_id %"PRIu32
+		fprintf(stderr, "rte_hash_add_key_data failed for op_id %"PRIu64
 				": %s (%u)\n",
 				op_id,
 				rte_strerror(abs(ret)), ret);
-	} else {
-		++cp_stats.nb_out;
 	}
 }
 
@@ -68,12 +66,12 @@ add_nb_op_id(uint32_t op_id)
  * entries, but rather those that do not get deleted.
  */
 static void
-del_nb_op_id(uint32_t op_id)
+del_nb_op_id(uint64_t op_id)
 {
 	int ret = rte_hash_del_key(nb_listener_hash, &op_id);
 
 	if (ret < 0) {
-		fprintf(stderr, "rte_hash_del_key failed for op_id %"PRIu32
+		fprintf(stderr, "rte_hash_del_key failed for op_id %"PRIu64
 				": %s (%u)\n",
 				op_id,
 				rte_strerror(abs(ret)), ret);
@@ -235,13 +233,14 @@ do_listen(int fd)
 {
 	int tx_bytes;
 	char rx_buffer[RTE_MBUF_DEFAULT_DATAROOM];
-	int rx_bytes = recv(fd, rx_buffer, sizeof(rx_buffer), 0);
+	int rx_bytes = recv(fd, rx_buffer, sizeof(rx_buffer) - 1, 0);
 
 	if (rx_bytes < 0) {
 		printf("Listener recv error: %s\n", strerror(abs(errno)));
 		return rx_bytes;
 	}
 
+	rx_buffer[rx_bytes] = '\0';
 
 	/* TODO: ERROR on parsing/session errors*/
 	tx_bytes = send(fd, HTTP_RESPONSE_OK, HTTP_RESPONSE_OK_LEN, 0);
@@ -282,10 +281,11 @@ void
 clean_nb_listener_on_signal(int signo)
 {
 	int i;
-
+	fd_set to_close = fd_set_active;
+	FD_ZERO(&fd_set_active);
 	if (signo == SIGINT) {
 		for (i = 0; i < FD_SETSIZE; ++i) {
-			if (FD_ISSET(i, &fd_set_active))
+			if (FD_ISSET(i, &to_close))
 				close(i);
 		}
 	}
@@ -337,10 +337,13 @@ listener(__rte_unused void *ptr)
 	FD_ZERO(&fd_set_active);
 	FD_SET(socket_fd, &fd_set_active);
 
-	while (1) {
+	while (FD_ISSET(socket_fd, &fd_set_active)) {
 		fd_set_read = fd_set_active;
 		ret = select(FD_SETSIZE, &fd_set_read, NULL, NULL, NULL);
-		if (ret < 0)
+		if (ret == 0)
+			continue;
+
+		if (ret < 0 && FD_ISSET(socket_fd, &fd_set_active))
 			rte_panic("Select error: %s", strerror(abs(errno)));
 
 		for (i = 0; i < FD_SETSIZE; ++i) {
@@ -352,8 +355,10 @@ listener(__rte_unused void *ptr)
 						&remote_addr_len);
 
 				if (new_connection < 0) {
-					rte_panic("Accept Error: %s\n",
+					if (FD_ISSET(socket_fd, &fd_set_active))
+						rte_panic("Accept Error: %s\n",
 							strerror(abs(errno)));
+					continue;
 				}
 
 				FD_SET(new_connection, &fd_set_active);
@@ -377,7 +382,7 @@ init_nb_listener(void)
 	struct rte_hash_parameters rte_hash_params = {
 			.name = "nb_hash",
 	    .entries = LISTENER_HASH_SIZE,
-	    .key_len = sizeof(uint32_t),
+	    .key_len = sizeof(uint64_t),
 	    .hash_func = rte_jhash,
 	    .hash_func_init_val = 0,
 	    .socket_id = rte_socket_id(),
