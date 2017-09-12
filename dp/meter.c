@@ -312,6 +312,12 @@ mtr_process_pkt(void **mtr_id, uint64_t **mtr_drp, struct rte_mbuf **pkt,
 int
 dp_meter_profile_table_create(struct dp_id dp_id, uint32_t max_elements)
 {
+	if (mtr_profile_tbl.max_entries) {
+		RTE_LOG(INFO, DP, "Meter Profile table: \"%s\" exist\n",
+					dp_id.name);
+		return 0;
+	}
+
 	mtr_table_create(&mtr_profile_tbl, dp_id.name, max_elements);
 	return 0;
 }

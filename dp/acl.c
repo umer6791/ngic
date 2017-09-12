@@ -1419,8 +1419,7 @@ dp_sdf_filter_table_create(struct dp_id dp_id, uint32_t max_elements)
 			return -1;
 
 	/* create acl rules table */
-	dp_acl_rules_table_create(SDF_PARAM, max_elements);
-	return 0;
+	return dp_acl_rules_table_create(SDF_PARAM, max_elements);
 }
 
 int
@@ -1446,12 +1445,23 @@ dp_sdf_filter_table_delete(struct dp_id dp_id)
 int
 dp_sdf_filter_entry_add(struct dp_id dp_id, struct pkt_filter *pkt_filter)
 {
+	static int is_first = 1;
 	enum acl_cfg_tbl standby = dp_acl_get_standby(sdf_active_tbl);
 	RTE_SET_USED(dp_id);
+
+	if (is_first == 1) {
+		if (dp_sdf_default_entry_action_modify(dp_id,
+					SDF_DEFAULT_DROP_RULE_ID) < 0)
+			return -1;
+
+		is_first = 0;
+	}
+
 	if (dp_filter_entry_add("SDF", standby, pkt_filter) < 0)
 		return -1;
 
 	sdf_active_tbl = standby;
+
 	return 0;
 }
 
@@ -1530,7 +1540,9 @@ int
 dp_adc_filter_entry_add(struct dp_id dp_id, struct pkt_filter *pkt_filter)
 {
 	enum acl_cfg_tbl standby = dp_acl_get_standby(adc_ul_active_tbl);
+
 	RTE_SET_USED(dp_id);
+
 	if (dp_filter_entry_add("ADC", standby, pkt_filter) < 0)
 		return -1;
 	adc_ul_active_tbl = standby;
@@ -1671,18 +1683,7 @@ uint32_t *dp_acl_lookup(struct rte_mbuf **m, int nb_rx,
 	lcore_id = rte_lcore_id();
 	socketid = rte_lcore_to_socket_id(lcore_id);
 
-	if (unlikely(acl_config->acx_ipv4[socketid] == NULL ||
-			acl_config->acx_ipv4_built[socketid] == 0)) {
-		static int show_message_once;
-		int i;
-		if (show_message_once == 0) {
-			RTE_LOG(NOTICE, DP, "ACL Table not yet setup\n");
-			show_message_once = 1;
-		}
-		(acl_search+lcore_id)->num_ipv4 = nb_rx;
-		for (i = 0; i < (acl_search+lcore_id)->num_ipv4; ++i)
-			(acl_search+lcore_id)->res_ipv4[i] = 0;
-	} else if (nb_rx > 0) {
+	if (nb_rx > 0) {
 
 		prepare_acl_parameter(m, acl_search+lcore_id, nb_rx);
 
@@ -1712,4 +1713,90 @@ uint32_t *adc_ul_lookup(struct rte_mbuf **m, int nb_rx)
 uint32_t *adc_dl_lookup(struct rte_mbuf **m, int nb_rx)
 {
 	return dp_acl_lookup(m, nb_rx, &acl_config[adc_dl_active_tbl], acl_search[ADC_DL_PARAM]);
+}
+
+int dp_sdf_default_entry_add(struct dp_id dp_id, uint32_t rule_id)
+{
+	enum acl_cfg_tbl standby = dp_acl_get_standby(sdf_active_tbl);
+	struct pkt_filter pktf = {
+			.pcc_rule_id = rule_id,
+			.precedence = 255,
+		};
+
+	RTE_SET_USED(dp_id);
+
+	snprintf(pktf.u.rule_str, MAX_LEN, "%s/%"PRIu8" %s/%"PRIu8" %"
+		PRIu16" : %"PRIu16" %"PRIu16" : %"PRIu16" 0x%"
+		PRIx8"/0x%"PRIx8"\n",
+		"0.0.0.0", 0, /*local_ip & mask */
+		"0.0.0.0", 0, /*remote_ip, mask,*/
+		0, /*local_port_low),*/
+		65535, /*local_port_high),*/
+		0,/*remote_port_low),*/
+		65535, /*remote_port_high),*/
+		0, 0/*proto, proto_mask)*/
+		);
+
+	if (dp_filter_entry_add("SDF", standby, &pktf) < 0)
+		return -1;
+
+	sdf_active_tbl = standby;
+	return 0;
+}
+
+int dp_sdf_default_entry_action_modify(struct dp_id dp_id, uint32_t rule_id)
+{
+	enum acl_cfg_tbl standby = dp_acl_get_standby(sdf_active_tbl);
+
+	RTE_SET_USED(dp_id);
+
+	RTE_LOG(INFO, DP, "ACL DEL:%s rule_id:%d\n",
+			"SDF", rule_id);
+
+	struct acl4_rule rule;
+	rule.data.userdata = rule_id + ACL_DENY_SIGNATURE;
+	if (dp_rules_entry_delete(&acl_rules_table[standby/2], &rule))
+		return -1;
+
+	struct pkt_filter pktf = {
+			.pcc_rule_id = SDF_DEFAULT_RULE_ID,
+			.precedence = 255,
+		};
+
+	snprintf(pktf.u.rule_str, MAX_LEN, "%s/%"PRIu8" %s/%"PRIu8" %"
+		PRIu16" : %"PRIu16" %"PRIu16" : %"PRIu16" 0x%"
+		PRIx8"/0x%"PRIx8"\n",
+		"0.0.0.0", 0, /*local_ip & mask */
+		"0.0.0.0", 0, /*remote_ip, mask,*/
+		0, /*local_port_low),*/
+		65535, /*local_port_high),*/
+		0,/*remote_port_low),*/
+		65535, /*remote_port_high),*/
+		0, 0/*proto, proto_mask)*/
+		);
+
+	if (dp_filter_entry_add("SDF", standby, &pktf) < 0)
+		return -1;
+
+	sdf_active_tbl = standby;
+	return 0;
+}
+
+int
+dp_adc_filter_default_entry_add(struct dp_id dp_id)
+{
+	struct pkt_filter adc_filter;
+	enum acl_cfg_tbl standby = dp_acl_get_standby(adc_ul_active_tbl);
+	RTE_SET_USED(dp_id);
+
+	adc_filter.pcc_rule_id = ADC_DEFAULT_RULE_ID;
+	adc_filter.precedence = 0xffff;
+	sprintf(adc_filter.u.rule_str, "0.0.0.0/0 0.0.0.0/0 "
+		"0 : 65535 0 : 65535 0x0/0x0\n");
+
+	if (dp_filter_entry_add("ADC", standby, &adc_filter) < 0)
+		return -1;
+	adc_ul_active_tbl = standby;
+
+	return 0;
 }

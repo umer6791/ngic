@@ -38,6 +38,11 @@ int iface_lookup_pcc_data(const uint32_t key32,
 int
 dp_pcc_table_create(struct dp_id dp_id, uint32_t max_elements)
 {
+	if (rte_pcc_hash) {
+		RTE_LOG(INFO, DP, "PCC table: \"%s\" exist\n", dp_id.name);
+		return 0;
+	}
+
 	return hash_create(dp_id.name, &rte_pcc_hash, max_elements * 4,
 				   sizeof(uint32_t));
 }

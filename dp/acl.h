@@ -37,6 +37,21 @@
  */
 #define DNS_FILTER_PRECE MAX_FILTER_PRECE
 
+/**
+ * Default SDF Rule ID to DROP (initialization)
+ */
+#define SDF_DEFAULT_DROP_RULE_ID  (MAX_ACL_RULE_NUM - 1)
+
+/**
+ * Default SDF Rule ID
+ */
+#define SDF_DEFAULT_RULE_ID  1
+
+/**
+ * Default ADC Rule ID
+ */
+#define ADC_DEFAULT_RULE_ID  (MAX_ACL_RULE_NUM - 1)
+
 uint64_t acl_rule_stats[MAX_ACL_RULE_NUM];
 
 /**
@@ -218,6 +233,49 @@ dp_adc_filter_entry_add(struct dp_id dp_id, struct pkt_filter *pkt_filter);
 int
 dp_adc_filter_entry_delete(struct dp_id dp_id,
 				struct pkt_filter *pkt_filter_entry);
+
+/**
+ * Add default SDF entry
+ *
+ * @param dp_id
+ *	dp_id structure
+ * @param rule_id
+ *      sdf rule_id
+ *
+ * @return
+ *	- 0 on success
+ *	- -1 on failure
+ */
+int
+dp_sdf_default_entry_add(struct dp_id dp_id, uint32_t rule_id);
+
+/**
+ * Modify default SDF entry action
+ *
+ * @param dp_id
+ *	dp_id structure
+ * @param rule_id
+ *      sdf rule_id
+ *
+ * @return
+ *	- 0 on success
+ *	- -1 on failure
+ */
+int
+dp_sdf_default_entry_action_modify(struct dp_id dp_id, uint32_t rule_id);
+
+/**
+ *  Add default ADC rule
+ *
+ * @param dp_id
+ *	identifier which is unique across DataPlanes.
+ *
+ * @return
+ *	- 0 on success
+ *	- -1 on failure
+ */
+int
+dp_adc_filter_default_entry_add(struct dp_id dp_id);
 
 #endif /* _ACL_H_ */
 

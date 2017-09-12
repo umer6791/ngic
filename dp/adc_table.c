@@ -163,8 +163,10 @@ dp_adc_table_delete(struct dp_id dp_id)
 int
 dp_adc_entry_add(struct dp_id dp_id, struct adc_rules *adc_filter_entry)
 {
-	if (IS_MAX_REACHED(adc_table))
+	if (IS_MAX_REACHED(adc_table)) {
 		RTE_LOG(INFO, DP, "Reached max ADC filter entries\n");
+		return -1;
+	}
 
 	struct adc_rules *new = rte_malloc("adc_filter", sizeof(struct adc_rules),
 			RTE_CACHE_LINE_SIZE);

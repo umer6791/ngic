@@ -130,12 +130,6 @@ int
 iface_lookup_uplink_data(struct ul_bm_key *key,
 		void **value)
 {
-	/* check if rte hash exists*/
-	if (unlikely(rte_uplink_hash == NULL)) {
-		RTE_LOG(NOTICE, DP, "UL iface not yet setup\n");
-		return -1;
-	}
-
 	return rte_hash_lookup_data(rte_uplink_hash, key, value);
 }
 
@@ -143,12 +137,6 @@ int
 iface_lookup_uplink_bulk_data(const void **key, uint32_t n,
 		uint64_t *hit_mask, void **value)
 {
-	/* check if rte hash exists*/
-	if (unlikely(rte_uplink_hash == NULL)) {
-		RTE_LOG(NOTICE, DP, "UL iface not yet setup\n");
-		return -1;
-	}
-
 	return rte_hash_lookup_bulk_data(rte_uplink_hash, key, n, hit_mask, value);
 }
 
@@ -156,11 +144,6 @@ int
 iface_lookup_downlink_data(struct dl_bm_key *key,
 		void **value)
 {
-	/* check if rte hash exists*/
-	if (unlikely(rte_downlink_hash == NULL)) {
-		RTE_LOG(NOTICE, DP, "DL iface not yet setup\n");
-		return -1;
-	}
 	return rte_hash_lookup_data(rte_downlink_hash, key, value);
 }
 
@@ -168,12 +151,6 @@ int
 iface_lookup_downlink_bulk_data(const void **key, uint32_t n,
 		uint64_t *hit_mask, void **value)
 {
-    /* check if rte hash exists*/
-    if (unlikely(rte_downlink_hash == NULL)) {
-		RTE_LOG(NOTICE, DP, "DL iface not yet setup\n");
-		return -1;
-	}
-
 	return rte_hash_lookup_bulk_data(rte_downlink_hash, key, n, hit_mask, value);
 }
 
@@ -181,11 +158,6 @@ int
 iface_lookup_adc_ue_data(struct dl_bm_key *key,
 		void **value)
 {
-	/* check if rte hash exists*/
-	if (unlikely(rte_adc_ue_hash == NULL)) {
-		RTE_LOG(NOTICE, DP, "rte_adc_ue_hash not yet setup\n");
-		return -1;
-	}
 	return rte_hash_lookup_data(rte_adc_ue_hash, key, value);
 }
 
@@ -193,22 +165,12 @@ iface_lookup_adc_ue_data(struct dl_bm_key *key,
 int iface_lookup_adc_data(const uint32_t key32,
 		void **value)
 {
-	/* check if rte hash exists*/
-	if (unlikely(rte_adc_hash == NULL)) {
-		RTE_LOG(NOTICE, DP, "ADC iface not yet setup\n");
-		return -1;
-	}
 	return rte_hash_lookup_data(rte_adc_hash, &key32, (void **)value);
 }
 
 int iface_lookup_adc_bulk_data(const void **key, uint32_t n,
 		uint64_t *hit_mask, void **value)
 {
-	/* check if rte hash exists*/
-	if (unlikely(rte_adc_hash == NULL)) {
-		RTE_LOG(NOTICE, DP, "ADC iface not yet setup\n");
-		return -1;
-	}
 	return rte_hash_lookup_bulk_data(rte_adc_hash, key, n, hit_mask, value);
 }
 struct rte_hash_bucket *bucket_ul_addr(uint64_t key)
@@ -783,6 +745,10 @@ dp_session_table_create(struct dp_id dp_id, uint32_t max_elements)
 {
 	RTE_SET_USED(dp_id);
 	int rc;
+	if (rte_sess_hash) {
+		RTE_LOG(INFO, DP, "PCC table: \"%s\" exist\n", dp_id.name);
+		return 0;
+	}
 	rc = hash_create(dp_id.name, &rte_sess_hash, max_elements * 4,
 			sizeof(uint64_t));
 	return rc;
