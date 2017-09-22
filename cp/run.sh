@@ -18,7 +18,7 @@ source ../config/cp_config.cfg
 APP_PATH="./build"
 APP="ngic_controlplane"
 
-ARGS="-c 0x00ff -n 4 --socket-mem $MEMORY,0 --file-prefix cp --no-pci -- \
+ARGS="-c 0x00e -n 4 --socket-mem $MEMORY,0 --file-prefix cp --no-pci -- \
   -s $S11_SGW_IP          \
   -m $S11_MME_IP          \
   -w $S1U_SGW_IP          \
@@ -34,6 +34,9 @@ USAGE=$"Usage: run.sh [ debug | log ]
 if [ -z "$1" ]; then
 
 	$APP_PATH/$APP $ARGS
+
+elif [ "$1" == "pcap" ]; then
+    $APP_PATH/$APP $ARGS -x ../pcap/cp_in.pcap -y ../pcap/cp_out.pcap
 
 elif [ "$1" == "log" ]; then
 

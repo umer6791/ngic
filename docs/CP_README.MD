@@ -137,10 +137,11 @@ NGIC Control Plane
              structure, including the assignment of UE IP and verification of
              correct APN. Simplified TEID and IP pool is exposed here.
 
+
 2. Low Level Code Walk-through
 -----------------------------
 
-2.1 Initialization
+##### 2.1 Initialization
 
 DPDK EAL arguments are parsed first. Please refer to
 [DPDK Environment Abstraction Layer documentation](
@@ -169,7 +170,7 @@ threads are spawned:
 * Master thread - Processes signaling messages, establishes PDN connections, and
   manages bearers.
 
-2.2 Master Thread Operation
+##### 2.2 Master Thread Operation
 
 The Master Thread processes signaling messages, which may be broken down by 3GPP
 Procedure Events as described by 3GPP TS 23.401. This thread enters an infinite
@@ -187,7 +188,7 @@ functions defined in the gtpv2c_messages directory. These include the functions:
 * process_create_bearer_response
 * process_delete_bearer_response
 
-2.2.1 Error Detection and Handling
+##### 2.2.1 Error Detection and Handling
 
 Error handling is restricted to detection, and will discard messages without
 notifying the MME (which contradicts protocol specifications in 3GPP TS 29.274
@@ -199,7 +200,7 @@ positive values indicate errors with descriptions defined in 3GPP Cause values
 to console prior to discarding the message.
 
 
-2.2.1 Attach Procedure
+##### 2.2.1 Attach Procedure
 
 Per 3GPP TS 23.401 clause 5.3.2.1, an E-UTRAN Initial Attach procedure includes
 two sets of Request & Response messages along the S11 between the SGW and MME.
@@ -231,13 +232,13 @@ parsing data structure. The eNB Fully Qualified Tunnel Endpoint Identifier
 is propagated to the Data Plane via the cp_dp_api call, session_modify. At this
 time Downlink traffic may flow towards the UE.
 
-2.2.2 Handover
+##### 2.2.2 Handover
 
 eNB Handover procedures are supported by updating the eNB F-TEID via Modify Bearer
 Request and Responses in the same sequence as the Attach Procedure.
 
 
-2.2.3 Dedicated Bearer Establishment (UE-initiated ONLY)
+##### 2.2.3 Dedicated Bearer Establishment (UE-initiated ONLY)
 
 Dedicated bearers are supported as a UE-initiated procedure described in 3GPP TS
 23.401 clause 5.4.5. Upon receipt of a Bearer Resource Command with a Traffic
@@ -264,7 +265,7 @@ Like the other files in the gtpv2c_messages directory, the function
 process_create_bearer_response handles this action with the helper/parsing
 function parse_create_bearer_rsp.
 
-2.2.4 Dedicated Bearer Deactivation (UE-initiated ONLY)
+##### 2.2.4 Dedicated Bearer Deactivation (UE-initiated ONLY)
 Bearers are deactivated according to the same UE-initiated procedure as their
 establishment, described in 3GPP TS 23.401 clause 5.4.5. Therefore, processing
 is similar  and is conducted in the process_bearer_resource_command function.
@@ -280,7 +281,7 @@ internal information storage as well as updates the Data Plane via cp_dp_api
 calls. The processing of this message is done in process_delete_bearer_response
 with the helper parse_delete_bearer_response.
 
-2.2.5 Session Deletion
+##### 2.2.5 Session Deletion
 
 The UE-Initiated Detach Procedure as described in detail in 3GPP TS 24.401,
 clause 5.3.8.2.1 consists of a Delete Session Request and Response pair of
@@ -293,14 +294,17 @@ with the help of the delete_context function. The response message is populated
 by the process_delete_session_request.
 
 
-3.1 Packet Capture Feature Description
+3. PCAP Support
+-----------------------------
+
+##### 3.1 Packet Capture Feature Description
 
 An optional feature included in the Control Plane is the ability to read/write
 GTPv2c messages from/to pcap file, bypassing the need for an MME for development
 or testing purposes. This feature is most useful for development testing of the
 Control Plane (and possibly the cp_dp_api) independent of the Data Plane.
 
-3.2 Intended Use
+##### 3.2 Intended Use
 
 Due to the complexity of GTPv2c messages, it has been generally helpful to
 develop the Control Plane independent of a full featured MME. In order to test
@@ -314,7 +318,7 @@ contained in the *pcap_file_in* file must be appropriately  set (see 3.3),
 therefore the use of this feature is most helpful when pacps are generated from
 prior tests with an attached MME.
 
-3.3 Use of Packet Capture Support in Control Plane in Data Plane Tests
+##### 3.3 Use of Packet Capture Support in Control Plane in Data Plane Tests
 
 It is theoretically possible to use this feature in combination with a generic
 packet generator (such as DPDK Pktgen), though will require a fair amount of
@@ -357,7 +361,69 @@ would require the following (list may be incomplete):
           E.g. UE_IP(1) = 16.255.255.254
           E.g. UE_IP(2) = 16.255.255.253   ... and so on
 
-4. Control Plane Limitations
+
+4. CP-FPC Lifecycle (When built with SDN_ODL_BUILD flag)
+----------------------------
+
+##### 4.1 CP-FPC Communication
+
+The CP and FPC ODL Plugin communicate entirely over HTTP. Messages are
+communicated over four different connections. Three of these connections remain
+active throughout the lifespan of the CP and FPC. These connections utilize
+[Server-Sent Events](https://www.w3.org/TR/eventsource/) (SSE) sending message
+using [HTTP Chunked Transfer Encoding](https://tools.ietf.org/html/rfc7230#section-4.1).
+The remaining connetion is a one-time HTTP-GET request for the DPN topology
+made to the FPC ODL Plugin.
+
+
+##### 4.2 CP-FPC Lifecycle Message Time Sequence
+
+
+                            CP                                                              FPC
+                            |                                                                |
+                            |- 1a POST http://<fpc_ip>:<fpc_port>/resposne ----------------->|
+                            |   {"client-uri":"http://<cp_ip>:<cp_port>/request"}            |
+        Resposne SSE Stream |<---------------------------------------- 1b HTTP-OK -----------|
+                            |                                                                |
+                            |                                                                |
+                            |<------------ 2a GET http://<cp_ip>:<cp_port>/resposne ---------|
+                            |- 2a HTTP-OK -------------------------------------------------->| Request SSE Stream
+                            |                                                                |
+                            |                                                                |
+                            |- 3a Bind Client ---------------------------------------------->| Request SSE Stream
+        Resposne SSE Stream |<------------------------------------- 3b Bind Client Response  |
+                            |                                                                |
+                            |                                                                |
+                            |- 4a POST http://<fpc_ip>:<fpc_port>/notification ------------->|
+                            |   {"client-id":"<client_id>"}                                  |
+    Notification SSE Stream |<------------------------------------------------ 4b HTTP-OK ---|
+                            |                                                                |
+                            |                                                                |
+                            |- 5a Get http://<fpc_ip>:<fpc_topology_port>/<topology-path> -->|
+                            |<----------------------------------------------- 5b Topology ---|
+                            //                                                               //
+                            //                 Completion of CP Lifecycle                    //
+                            //                                                               //
+    Notification SSE Stream |<---------------------------------------------- 6 DPN-Available-|
+                            //                                                               //
+                            //       DPN Installed - Ready for Session Establishment         //
+                            //                                                               //
+                            |                                                                |
+                            |- 7a. Create Session------------------------------------------->| Request SSE Stream
+        Resposne SSE Stream |<---------------------------------------- 7b OK-Notify-Follows--|
+    Notification SSE Stream |<------------------------------ 7c Config-Notification-Result---|
+                            |                                                                |
+                            |- 8a. Create Session------------------------------------------->| Request SSE Stream
+        Resposne SSE Stream |<---------------------------------------- 8b OK-Notify-Follows--|
+    Notification SSE Stream |<------------------------------ 8c Config-Notification-Result---|
+                            //                                                               //
+    Notification SSE Stream |<-------------------------------------------- 9 DPN-Unavailable-|
+                            //                                                               //
+                            |- 10 Unbind Client -------------------------------------------->| Request SSE Stream
+
+
+
+5. Control Plane Limitations
 ----------------------------
 
 * Error Handling of S11 messages is restricted to detection. In many cases, 3GPP

@@ -70,9 +70,9 @@ CFLAGS += -I$(SRCDIR)/../interface/zmq
 CFLAGS += -g -DCP_BUILD
 #For SDN NB interface enable SDN_ODL_BUILD OR SDN_ONOS_BUILD not both
 ifneq (,$(findstring SDN_ODL_BUILD, $(CFLAGS)))
-	SRCS-y += $(SRCDIR)/../interface/sdn/sdnODLnbcurl.o
-	SRCS-y += nb_listener.c
-  LDLIBS += -ljson-c -lcurl
+	SRCS-y += nb.c
+	LDLIBS += -ljson-c
+	LDLIBS += -lcurl
 endif
 CFLAGS += -O3
 #CFLAGS += -O0

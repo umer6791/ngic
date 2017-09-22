@@ -20,9 +20,7 @@
 #include <string.h>
 
 #ifdef SDN_ODL_BUILD
-#include <rte_ring.h>
-
-#include "sdnODLnbcurl.h"
+#include "nb.h"
 #endif
 #include "cp_stats.h"
 
@@ -32,7 +30,8 @@ struct cp_stats_t cp_stats;
  * @brief callback used to display rx packets per second
  * @return number of packets received by the control plane s11 interface
  */
-static uint64_t rx_pkts_per_sec(void)
+static uint64_t
+rx_pkts_per_sec(void)
 {
 	uint64_t ret = cp_stats.rx - cp_stats.rx_last;
 
@@ -44,7 +43,8 @@ static uint64_t rx_pkts_per_sec(void)
  * @brief callback used to display tx packets per second
  * @return number of packets transmitted by the control plane s11 interface
  */
-static uint64_t tx_pkts_per_sec(void)
+static uint64_t
+tx_pkts_per_sec(void)
 {
 	uint64_t ret = cp_stats.tx - cp_stats.tx_last;
 
@@ -56,7 +56,8 @@ static uint64_t tx_pkts_per_sec(void)
  * @brief callback used to display control plane uptime
  * @return control plane uptime in seconds
  */
-static uint64_t stats_time(void)
+static uint64_t
+stats_time(void)
 {
 	uint64_t ret = cp_stats.time;
 
@@ -65,34 +66,22 @@ static uint64_t stats_time(void)
 }
 
 #ifdef SDN_ODL_BUILD
-/**
- * @brief callback used to display outstanding northbound messages sent yet to
- * be acknowledged
- * @return number of outstanding messages on the northbound interface
- */
-static uint64_t stats_nb(void)
+static uint64_t
+nb_ok_delta(void)
 {
-	uint64_t nb_out = 0;
-	unsigned i;
-	for (i = 0; i < NUM_CURL_POST_PTHREADS; ++i)
-		nb_out += cp_stats.nb_out[i];
-	return (nb_out > cp_stats.nb_in) ? nb_out - cp_stats.nb_in : 0;
+	uint64_t nb_ok = cp_stats.nb_ok;
+	uint64_t nb_sent = cp_stats.nb_sent;
+	return (nb_ok < nb_sent ? nb_sent - nb_ok : 0);
 }
 
-/**
- * @brief callback used to display number of northbound messages queued
- * @return number of northbound messages queued
- */
-static uint64_t stats_nb_rings(void)
+static uint64_t
+nb_cnr_delta(void)
 {
-	uint64_t total = 0;
-	unsigned i;
-	for (i = 0; i < NUM_CURL_POST_PTHREADS; ++i)
-		total += rte_ring_count(sdnODLnbif_ring[i]);
-	return total;
+	uint64_t nb_cnr = cp_stats.nb_cnr;
+	uint64_t nb_sent = cp_stats.nb_sent;
+	return (nb_cnr < nb_sent ? nb_sent - nb_cnr : 0);
 }
 #endif
-
 /**
  * @brief statistics entry
  * used to simplify statistics by providing a common interface for statistic
@@ -138,8 +127,9 @@ struct stat_entry_t stat_entries[] = {
 	DEFINE_VALUE_STAT(8, &cp_stats.ddn, "",	"ddn"),
 	DEFINE_VALUE_STAT(8, &cp_stats.ddn_ack, "ddn", "ack"),
 #ifdef SDN_ODL_BUILD
-	DEFINE_LAMBDA_STAT(8, stats_nb, "", "nb"),
-	DEFINE_LAMBDA_STAT(8, stats_nb_rings, "nb", "rings"),
+	DEFINE_VALUE_STAT(8, &cp_stats.nb_sent, "nb", "sent"),
+	DEFINE_LAMBDA_STAT(8, nb_ok_delta, "nb ok", "delta"),
+	DEFINE_LAMBDA_STAT(8, nb_cnr_delta, "nb cnr", "delta"),
 #endif
 };
 

@@ -89,10 +89,10 @@ CP dpdk run parameters:
 
 ```text
     -c coremask                - An hexadecimal bit mask of the cores to run on. For base
-                                 functionality, the control plane requires a minimum 1 core,
-                                 (or 3 cores if built with SDN_ODL_BUILD). If the display of
+                                 functionality, the control plane requires a minimum 2 cores,
+                                 (or 1 core if built with SDN_ODL_BUILD). If the display of
                                  CP statistics is desired, an additional core is required
-                                 for a total of 2 (or 4) cores.
+                                 for a total of 3 (or 2) cores.
     -n 4                       - Recommend using all available memory channels
     --socket-mem X,Y           - Memory has been allocated according to NUMA-awareness,
                                  suggest using memory on socket corresponding to coremask
@@ -175,15 +175,15 @@ direction of messages. Listed below the diagram is the descriptions of
     |                           CP                               |
     |                       +----------------------------------------------+
     | cp_comm_ip:port       |  HTTP-POST    cp_nb_server_ip:port |         |
-    +-----v-----^-----------|------v-----------------^-----------+         |
-          v     ^           |      v                 ^                     |
-          v     ^           |      v HTTP            ^ HTTP                |
-          v     ^           |      v                 ^                     |
-          v     ^           | +----v-----------------^------------+        |
-          v     ^           | | fpc_ip:port                       |        |
-          v     ^           | |                                   |        |
-          v     ^           | |            FPC - Karaf            |        |
-          v     ^           | +----v----------------------^-------+        |
+    +-----v-----^-----------|------v-^----------------v----------+         |
+          v     ^           |      v ^                v                    |
+          v     ^           |      v ^ HTTP/SSE       v HTTP      <NorthBound Interface>
+          v     ^           |      v ^                v                    |
+          v     ^           | +----v-^----------------v-----------------+  |
+          v     ^           | | fpc_ip:port    fpc_ip:fpc_topology_port |  |
+          v     ^           | |                                         |  |
+          v     ^           | |               FPC - ODL                 |  |
+          v     ^           | +----v----------------------^-------------+  |
           v     ^           |      v                      ^                |
           v     ^           |      v ZMQ                  ^           FPC  |
           v UDP ^           |      v                      ^           SDN  |
@@ -194,7 +194,7 @@ direction of messages. Listed below the diagram is the descriptions of
           v     ^           | | zmq_sub_ip:port   zmq_pub_ip:port |        |
           v     ^           | +----^----------------------v-------+        |
           v     ^           |      ^                      v                |
-          v     ^           |      ^ ZMQ                  v ZMQ            |
+          v     ^           |      ^ ZMQ                  v ZMQ   <SouthBound Interface>
           v     ^           |      ^                      v                |
     +-----v-----^-----------|------^----------------------v------+         |
     | dp_comm_ip:port       |                COMM_ZMQ            |         |
@@ -238,12 +238,17 @@ the ZMQ FORWARDER device.
 - `cp_comm_ip` & `cp_comm_port`: the ip:port of the CP UDP interface used for
     direct communication by the CP to and from the DP.
 
-- `fpc_ip` & `fpc_port`: the ip:port of the FPC Karaf server component to
-    receive HTTP POST Requests from the CP.
+- `fpc_ip` & `fpc_port`: the ip:port of the FPC ODL plugin for use in
+    communication along the NorthBound Interface.
 
-- `cp_nb_server_ip` & `cp_nb_server_port`: the ip:port of the CP component to
-    receive, process, and reply to config-result-notification (HTTP POST)
-    messages from the FPC Karaf component.
+- `fpc_topology_port`: the port used (in combination with the `fpc_ip`) to
+    request the (DPN) topology from the FPC ODL plugin.
+
+- `cp_nb_ip` & `cp_nb_port`: the ip:port of the CP component to communication
+    along the NorthBound interface with with FPC ODL plugin.
+
+Additional information on the northbound interfaces and their uses can be found
+in the [CP_README.MD](docs/CP_README.MD)
 
 
 ##### 2.4.3 Co-located Configuration
@@ -259,7 +264,7 @@ configuration ofthe FPC components. These parameters and values include
 can be found at the [FPC GitHub page](https://github.com/opendaylight/fpc).
 
 
-##### 2.4.5 NGIC Port Parameters
+##### 2.4.6 NGIC Port Parameters
 The `dp_comm_port`, `cp_comm_port`, and `cp_nb_server_port` parameters may
 utilize any available ports on the respective systems.
 
@@ -325,7 +330,7 @@ been added
 
 ###### Dependencies
 * DPDK 16.04: Downloaded as a submodule, using `--recursive` when cloning this repo or using the `install.sh` script.
-Alternatively, it can be downloaded and installed manually from [here](http://fast.dpdk.org/rel/dpdk-16.04.tar.xz)
+Alternatively, it can be downloaded and installed manually from [here](http://fast.dpdk.org/rel/dpdk-16.04.tar.xz).
 Both the options are avialble as part of install.sh below.
 * libpcap-dev
 * libzmq

@@ -36,7 +36,6 @@
 #include <unistd.h>
 #include <string.h>
 
-#include "interface.h"
 
 #define __FILENAME__ \
 	(strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
@@ -44,6 +43,31 @@
 
 #define MAX_NODE_ID_SIZE     (UINT8_MAX)
 #define MAX_NETWORK_ID_SIZE  (UINT8_MAX)
+
+
+/* s11 interface message type */
+enum s11_msgtype {
+	CREATE_SESSION = 1,
+	MODIFY_BEARER = 2,
+	DELETE_SESSION = 3,
+	DPN_RESPONSE = 4,
+	DDN = 5,
+	ASSIGN_TOPIC = 10,
+	ASSIGN_CONFLICT = 11,
+	DPN_STATUS_INDICATION = 12,
+	DPN_STATUS_ACK = 13,
+	CONTROLLER_STATUS_INDICATION = 14,
+};
+
+enum dpn_status {
+	HELLO = 1,
+	GOODBYE = 2,
+};
+
+enum topic_codes {
+	BROADCAST_ALL_TOPIC = 1,
+	BROADCAST_CONTROLLERS = 2,
+};
 
 struct max_node_network_id {
 	uint8_t node_id_len;
@@ -127,6 +151,17 @@ struct zmqbuf {
 #pragma pack()
 
 /**
+ * sends zmq message on sb
+ * @param mbuf
+ * message to send
+ * @return
+ * 0 to indicate success, error otherwise
+ */
+int
+do_zmq_mbuf_send(struct zmqbuf *mbuf);
+
+
+/**
  * @brief
  * creates zmq socket used for subscriber
  * @return
@@ -168,7 +203,19 @@ void zmq_status_goodbye(void);
  */
 void zmq_ddn(uint64_t sess_id, uint32_t client_id);
 
-
+/**
+ * .
+ */
+/**
+ * @brief Function to process mbuf over zmq
+ * @param zmqmsgbuf_rx
+ * @param zmqmsglen
+ * @return
+ * 0 to success
+ * otherwise error
+ */
+int
+zmq_mbuf_process(struct zmqbuf *zmqmsgbuf_rx, int zmqmsglen);
 
 /**
  * @brief

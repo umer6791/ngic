@@ -17,6 +17,7 @@
 #include <netinet/in.h>
 
 #include "zmqpub.h"
+#include "zmqsub.h"
 
 void *zmqpub_sockctxt;
 void *zmqpub_socket;
