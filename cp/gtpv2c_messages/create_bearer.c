@@ -173,7 +173,8 @@ process_create_bearer_response(gtpv2c_header *gtpv2c_rx)
 	session.dl_s1_info.sgw_addr.iptype = IPTYPE_IPV4,
 	session.dl_s1_info.sgw_addr.u.ipv4_addr =
 		ntohl(create_bearer_rsp.ded_bearer->s1u_sgw_gtpu_ipv4.s_addr),
-	session.apn_mtr_idx = 0;
+	session.ul_apn_mtr_idx = ulambr_idx;
+	session.dl_apn_mtr_idx = dlambr_idx;
 
 	for (i = 0; i < create_bearer_rsp.ded_bearer->num_packet_filters; ++i) {
 		uint8_t packet_filter_direction = get_packet_filter_direction(

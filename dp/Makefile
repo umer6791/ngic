@@ -127,10 +127,10 @@ CFLAGS += -DDNS_STATS
 #CFLAGS += -DRX_LB_TX
 
 # Un-comment below line to enable SDF Metering
-#CFLAGS += -DSDF_MTR
+CFLAGS += -DSDF_MTR
 
 # Un-comment below line to enable APN Metering
-#CFLAGS += -DAPN_MTR
+CFLAGS += -DAPN_MTR
 
 # Un-comment below line to enable ADC upfront.
 CFLAGS += -DADC_UPFRONT

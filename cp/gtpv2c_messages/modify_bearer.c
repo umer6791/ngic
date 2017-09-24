@@ -219,7 +219,8 @@ process_modify_bearer_request(gtpv2c_header *gtpv2c_rx,
 	 session.dl_s1_info.sgw_addr.iptype = IPTYPE_IPV4;
 	 session.dl_s1_info.sgw_addr.u.ipv4_addr =
 		 ntohl(modify_bearer_request.bearer->s1u_sgw_gtpu_ipv4.s_addr);
-	 session.apn_mtr_idx = 0;
+	 session.ul_apn_mtr_idx = 0;
+	 session.dl_apn_mtr_idx = 0;
 	 session.num_ul_pcc_rules = 1;
 	 session.ul_pcc_rule_id[0] = FIRST_FILTER_ID;
 	 session.num_dl_pcc_rules = 1;

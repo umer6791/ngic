@@ -124,7 +124,8 @@ process_release_access_bearer_request(gtpv2c_header *gtpv2c_rx,
 		session.dl_s1_info.sgw_addr.u.ipv4_addr =
 		    ntohl(bearer->s1u_sgw_gtpu_ipv4.s_addr);
 		session.bearer_id = bearer->eps_bearer_id;
-		session.apn_mtr_idx = 0;
+		session.ul_apn_mtr_idx = ulambr_idx;
+		session.dl_apn_mtr_idx = dlambr_idx;
 		session.num_ul_pcc_rules = 1;
 		session.ul_pcc_rule_id[0] = FIRST_FILTER_ID;
 		session.num_dl_pcc_rules = 1;

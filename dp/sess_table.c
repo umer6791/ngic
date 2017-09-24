@@ -262,13 +262,15 @@ add_ul_pcc_entry_key_with_idx(struct dp_session_info *old,
 	}
 
 #ifdef SDF_MTR
-	mtr_cfg_entry(pcc_info->mtr_profile_index, &psdf->sdf_mtr_obj);
+	mtr_cfg_entry(pcc_info->qos.ul_mtr_profile_index, &psdf->sdf_mtr_obj);
+	RTE_LOG(DEBUG, DP, "SDF MTR ADD:UL pcc %d, mtr_idx %d\n",
+			pcc_info->rule_id, pcc_info->qos.ul_mtr_profile_index);
 #endif	/* SDF_MTR */
 
 	ul_key.s1u_sgw_teid = data->ul_s1_info.sgw_teid;
 	ul_key.rid = pcc_id;
 
-	RTE_LOG(DEBUG, DP, "BEAR_SESS ADD:UL_KEY: teid:%u, rid:%u,",
+	RTE_LOG(DEBUG, DP, "SDF ADD:UL_KEY: teid:%u, rid:%u\n",
 			ul_key.s1u_sgw_teid, ul_key.rid);
 
 	ret = rte_hash_add_key_data(rte_uplink_hash,
@@ -381,14 +383,16 @@ add_dl_pcc_entry_key_with_idx(struct dp_session_info *old,
 	}
 
 #ifdef SDF_MTR
-	mtr_cfg_entry(pcc_info->mtr_profile_index, &psdf->sdf_mtr_obj);
+	mtr_cfg_entry(pcc_info->qos.dl_mtr_profile_index, &psdf->sdf_mtr_obj);
+	RTE_LOG(DEBUG, DP, "SDF MTR ADD:DL pcc %d, mtr_idx %d\n",
+			pcc_info->rule_id, pcc_info->qos.dl_mtr_profile_index);
 #endif	/* SDF_MTR */
 
 	dl_key.ue_ipv4 = old->ue_addr.u.ipv4_addr;
 	dl_key.rid = pcc_id;
 
-	RTE_LOG(DEBUG, DP, "BEAR_SESS ADD:DL_KEY: ue_addr:"IPV4_ADDR ",",
-			IPV4_ADDR_HOST_FORMAT(dl_key.ue_ipv4));
+	RTE_LOG(DEBUG, DP, "SDF ADD:DL_KEY: ue_addr:"IPV4_ADDR ", rid: %d\n",
+			IPV4_ADDR_HOST_FORMAT(dl_key.ue_ipv4), pcc_id);
 
 	ret = rte_hash_add_key_data(rte_downlink_hash,
 			&dl_key, psdf);
@@ -397,6 +401,27 @@ add_dl_pcc_entry_key_with_idx(struct dp_session_info *old,
 	if (ret < 0)
 		rte_panic("Failed to add entry in hash table");
 }
+
+#ifdef SDF_MTR
+static void
+flush_sdf_mtr(struct dp_sdf_per_bearer_info *psdf, char *s)
+{
+	export_mtr(psdf->bear_sess_info, s, psdf->pcc_info.rule_id,
+					psdf->sdf_mtr_drops);
+}
+#endif /* SDF_MTR*/
+#ifdef APN_MTR
+static void
+flush_apn_mtr(struct dp_sdf_per_bearer_info *psdf)
+{
+	export_mtr(psdf->bear_sess_info, "UL-APN",
+			psdf->bear_sess_info->ue_info_ptr->ul_apn_mtr_idx,
+			psdf->bear_sess_info->ue_info_ptr->ul_apn_mtr_drops);
+	export_mtr(psdf->bear_sess_info, "DL-APN",
+			psdf->bear_sess_info->ue_info_ptr->dl_apn_mtr_idx,
+			psdf->bear_sess_info->ue_info_ptr->dl_apn_mtr_drops);
+}
+#endif /* APN_MTR*/
 
 /**
  * @brief Function to del DL pcc entry with key and
@@ -417,7 +442,8 @@ del_dl_pcc_entry_key_with_idx(struct dp_session_info *data, uint32_t idx)
 	if (dl_key.rid == 0)
 		return;
 
-	RTE_LOG(DEBUG, DP, "BEAR_SESS DEL:DL_KEY: pcc_id: %d, ue_addr:"IPV4_ADDR ",",
+	RTE_LOG(DEBUG, DP, "BEAR_SESS DEL:DL_KEY: pcc_id: %d, ue_addr:"
+		IPV4_ADDR "\n",
 		dl_key.rid, IPV4_ADDR_HOST_FORMAT(dl_key.ue_ipv4));
 
 	/* Get the sdf per bearer info */
@@ -432,6 +458,10 @@ del_dl_pcc_entry_key_with_idx(struct dp_session_info *data, uint32_t idx)
 			&dl_key);
 	if (ret < 0)
 		rte_panic("Failed to del entry from hash table");
+
+#ifdef SDF_MTR
+	flush_sdf_mtr(psdf, "DL-SDF");
+#endif
 
 	/* look for sdf per bearer info in uplink hash */
 	ul_key.s1u_sgw_teid = data->ul_s1_info.sgw_teid;
@@ -524,6 +554,7 @@ copy_dp_adc_rules(struct dp_adc_rules *dst,
 	dst->rule_activation_time = src->rule_activation_time;
 	dst->rule_deactivation_time = src->rule_deactivation_time;
 	dst->redirect_info = src->redirect_info;
+	dst->mtr_profile_index = src->mtr_profile_index;
 }
 /**
  * @brief Function to add adc entry with key and
@@ -578,6 +609,10 @@ add_adc_entry_key_with_idx(struct ue_session_info *old,
 					&key, padc_ue);
 	if (ret < 0)
 			rte_panic("Failed to add entry in hash table");
+
+#ifdef SDF_MTR
+	mtr_cfg_entry(padc_ue->adc_info.mtr_profile_index, &padc_ue->mtr_obj);
+#endif  /* SDF_MTR */
 }
 
 /**
@@ -819,7 +854,6 @@ copy_session_info(struct dp_session_info *dst,
 	dst->sess_id = src->sess_id;
 	dst->client_id = src->client_id;
 	dst->service_id = src->service_id;
-	dst->apn_mtr_idx = src->apn_mtr_idx;
 }
 
 int
@@ -835,8 +869,10 @@ dp_session_create(struct dp_id dp_id,
 	uint32_t ue_sess_id = UE_SESS_ID(entry->sess_id);
 	uint32_t bear_id = UE_BEAR_ID(entry->sess_id);
 	RTE_SET_USED(dp_id);
-	RTE_LOG(DEBUG, DP, "BEAR_SESS ADD:sess_id:%u, bear_id:%u\n",
-			ue_sess_id, bear_id);
+	RTE_LOG(DEBUG, DP, "BEAR_SESS ADD:sess_id:%u, bear_id:%u, ue_addr:"
+			IPV4_ADDR "\n",
+			ue_sess_id, bear_id,
+			IPV4_ADDR_HOST_FORMAT(entry->ue_addr.u.ipv4_addr));
 
 	if ((entry->num_ul_pcc_rules > MAX_PCC_RULES)
 			|| (entry->num_dl_pcc_rules > MAX_PCC_RULES)) {
@@ -891,14 +927,24 @@ dp_session_create(struct dp_id dp_id,
 		}
 
 		ue_data->ue_addr = data->ue_addr;
+		ue_data->ul_apn_mtr_idx = entry->ul_apn_mtr_idx;
+		ue_data->dl_apn_mtr_idx = entry->dl_apn_mtr_idx;
 		ue_data->bearer_count = 1;
 
 #ifdef APN_MTR
-		mtr_cfg_entry(data->apn_mtr_idx, &ue_data->apn_mtr_obj);
-		RTE_LOG(DEBUG, DP, "UE_SESS ADD:bear_count:%u, apn_mtr_idx%u, "
+		mtr_cfg_entry(ue_data->ul_apn_mtr_idx,
+				&ue_data->ul_apn_mtr_obj);
+		RTE_LOG(DEBUG, DP, "UL-APN MTR ADD: apn_mtr_id: %u, "
 				"apn_obj:0x%"PRIx64"\n",
-				ue_data->bearer_count, data->apn_mtr_idx,
-				(uint64_t)&ue_data->apn_mtr_obj);
+				ue_data->ul_apn_mtr_idx,
+				(uint64_t)&ue_data->ul_apn_mtr_obj);
+
+		mtr_cfg_entry(ue_data->dl_apn_mtr_idx,
+				&ue_data->dl_apn_mtr_obj);
+		RTE_LOG(DEBUG, DP, "DL-APN MTR ADD: apn_mtr_id: %u, "
+				"apn_obj:0x%"PRIx64"\n",
+				ue_data->dl_apn_mtr_idx,
+				(uint64_t)&ue_data->dl_apn_mtr_obj);
 #endif	/* APN_MTR */
 	} else {
 		/* update UE data*/
@@ -936,8 +982,15 @@ dp_session_modify(struct dp_id dp_id,
 	PRINT_SESSION_INFO(entry);
 	struct dp_session_info *data;
 	struct dp_session_info mod_data;
+	uint32_t ue_sess_id = UE_SESS_ID(entry->sess_id);
+	uint32_t bear_id = UE_BEAR_ID(entry->sess_id);
 	int i;
 	RTE_SET_USED(dp_id);
+
+	RTE_LOG(DEBUG, DP, "BEAR_SESS MOD:sess_id:%u, bear_id:%u, ue_addr:"
+		IPV4_ADDR "\n",
+		ue_sess_id, bear_id,
+		IPV4_ADDR_HOST_FORMAT(entry->ue_addr.u.ipv4_addr));
 
 	if ((entry->num_ul_pcc_rules > MAX_PCC_RULES)
 			|| (entry->num_dl_pcc_rules > MAX_PCC_RULES)) {
@@ -954,7 +1007,8 @@ dp_session_modify(struct dp_id dp_id,
 
 	data = get_session_data(entry->sess_id, SESS_MODIFY);
 	if (data == NULL) {
-		printf("Session id 0x%"PRIx64" not found\n", entry->sess_id);
+		RTE_LOG(ERR, DP, "Session id 0x%"PRIx64" not found\n",
+					entry->sess_id);
 		return -1;
 	}
 
@@ -1123,81 +1177,34 @@ flush_session_adc_records(struct dp_session_info *session)
 	}
 }
 
-int
-dp_session_delete(struct dp_id dp_id,
-		struct session_info *entry)
+/**
+ * Flush CDR records of all the PCC rules for the given Bearer session,
+ * into cdr cvs record file.
+ * @param session
+ *      dp bearer session.
+ *
+ * @return
+ * Void
+ */
+#ifdef APN_MTR
+static void
+flush_apn_records(struct dp_session_info *session)
 {
-	PRINT_SESSION_INFO(entry);
-	struct dp_session_info *data;
-	RTE_SET_USED(dp_id);
-	data = get_session_data(entry->sess_id, SESS_MODIFY);
-	if (data == NULL) {
-		printf("Session id 0x%"PRIx64" not found\n", entry->sess_id);
-		return -1;
-	}
-	if (data->dl_ring != NULL) {
-		uint32_t worker_core_id;
-		uint32_t ue_ipv4_hash;
-		set_ue_ipv4_hash(&ue_ipv4_hash, &data->ue_addr.u.ipv4_addr);
-		set_worker_core_id(&worker_core_id, &ue_ipv4_hash);
-		struct epc_worker_params *wk_params =
-				&epc_app.worker[worker_core_id];
+	struct dl_bm_key dl_key;
+	struct dp_sdf_per_bearer_info *psdf = NULL;
 
-		struct rte_ring *ring = data->dl_ring;
-
-		data->dl_ring = NULL;
-		/* This is going to be nasty. We could potentially have a race
-		 * condition if modify bearer occurs directly before a delete
-		 * session, causing scan_notify_ring_func to work on the same
-		 * ring as this function. For our current tests, we *should* be
-		 * okay. For now.
-		 */
-
-		struct rte_mbuf *m[MAX_BURST_SZ];
-		int ret;
-		int i;
-		int count = 0;
-
-		do {
-			ret = rte_ring_sc_dequeue_burst(ring,
-					(void **)m, MAX_BURST_SZ);
-			for (i = 0; i < ret; ++i)
-				rte_pktmbuf_free(m[i]);
-			count += ret;
-		} while (ret);
-
-		if (rte_ring_enqueue(wk_params->dl_ring_container, ring) ==
-				ENOBUFS) {
-			RTE_LOG(ERR, DP, "Can't put ring back, so free it - "
-					"dropped %d pkts\n", count);
-			rte_ring_free(ring);
-		}
-	}
-
-#ifdef ADC_UPFRONT
-	flush_session_adc_records(data);
-#endif
-	flush_session_pcc_records(data);
-
-	struct dp_session_info new;
-
-	memset(&new, 0, sizeof(struct dp_session_info));
-	/* Update PCC rules addr*/
-	update_pcc_rules(data, &new);
-	/* Update adc rules */
-	if (data->ue_info_ptr->num_adc_rules) {
-		struct ue_session_info new_ue_data = {0};
-		/* Update ADC rules addr*/
-		update_adc_rules(data->ue_info_ptr, &new_ue_data);
-	}
-
-	/* remove entry from session hash table*/
-	if (rte_hash_del_key(rte_sess_hash, &entry->sess_id) < 0)
-		return -1;
-	rte_free(data);
-	return 0;
+	RTE_LOG(DEBUG, DP, "Flushing APN CDRs for session id 0x%"PRIx64
+			": ebi %d @ "IPV4_ADDR"\n",
+			session->sess_id, (uint8_t)UE_BEAR_ID(session->sess_id),
+			IPV4_ADDR_HOST_FORMAT(session->ue_addr.u.ipv4_addr));
+	dl_key.ue_ipv4 = session->ue_addr.u.ipv4_addr;
+	dl_key.rid = session->dl_pcc_rule_id[0];
+	if ((rte_hash_lookup_data(rte_downlink_hash, &dl_key,
+			(void **)&psdf)) < 0)
+		return;
+	flush_apn_mtr(psdf);
 }
-
+#endif /* APN_MTR*/
 /**
  * Flush Bearer CDR records
  * into cvs file.
@@ -1309,6 +1316,90 @@ export_flow_cdr_record(struct dp_session_info *session)
 	}
 }
 
+int
+dp_session_delete(struct dp_id dp_id,
+		struct session_info *entry)
+{
+	PRINT_SESSION_INFO(entry);
+	struct dp_session_info *data;
+	RTE_SET_USED(dp_id);
+	data = get_session_data(entry->sess_id, SESS_MODIFY);
+	if (data == NULL) {
+		printf("Session id 0x%"PRIx64" not found\n", entry->sess_id);
+		return -1;
+	}
+	if (data->dl_ring != NULL) {
+		uint32_t worker_core_id;
+		uint32_t ue_ipv4_hash;
+		set_ue_ipv4_hash(&ue_ipv4_hash, &data->ue_addr.u.ipv4_addr);
+		set_worker_core_id(&worker_core_id, &ue_ipv4_hash);
+		struct epc_worker_params *wk_params =
+				&epc_app.worker[worker_core_id];
+
+		struct rte_ring *ring = data->dl_ring;
+
+		data->dl_ring = NULL;
+		/* This is going to be nasty. We could potentially have a race
+		 * condition if modify bearer occurs directly before a delete
+		 * session, causing scan_notify_ring_func to work on the same
+		 * ring as this function. For our current tests, we *should* be
+		 * okay. For now.
+		 */
+
+		struct rte_mbuf *m[MAX_BURST_SZ];
+		int ret;
+		int i;
+		int count = 0;
+
+		do {
+			ret = rte_ring_sc_dequeue_burst(ring,
+					(void **)m, MAX_BURST_SZ);
+			for (i = 0; i < ret; ++i)
+				rte_pktmbuf_free(m[i]);
+			count += ret;
+		} while (ret);
+
+		if (rte_ring_enqueue(wk_params->dl_ring_container, ring) ==
+				ENOBUFS) {
+			RTE_LOG(ERR, DP, "Can't put ring back, so free it - "
+					"dropped %d pkts\n", count);
+			rte_ring_free(ring);
+		}
+	}
+
+#ifdef ADC_UPFRONT
+	flush_session_adc_records(data);
+#endif
+	flush_session_pcc_records(data);
+#ifdef APN_MTR
+	flush_apn_records(data);
+#endif /* APN_MTR*/
+
+	/*added for debugging*/
+	export_bearer_cdr_record(data);
+	export_adc_cdr_record(data);
+	export_flow_cdr_record(data);
+
+
+	struct dp_session_info new;
+
+	memset(&new, 0, sizeof(struct dp_session_info));
+	/* Update PCC rules addr*/
+	update_pcc_rules(data, &new);
+	/* Update adc rules */
+	if (data->ue_info_ptr->num_adc_rules) {
+		struct ue_session_info new_ue_data = {0};
+		/* Update ADC rules addr*/
+		update_adc_rules(data->ue_info_ptr, &new_ue_data);
+	}
+
+	/* remove entry from session hash table*/
+	if (rte_hash_del_key(rte_sess_hash, &entry->sess_id) < 0)
+		return -1;
+	rte_free(data);
+	return 0;
+}
+
 /**
  * Flush Rating Group CDR records for the given Bearer session,
  * into cdr cvs record file.
@@ -1333,7 +1424,7 @@ export_rg_cdr_record(struct dp_session_info *session)
 }
 #endif /* RATING_GRP_CDR */
 int
-dp_ue_cdr_flush(struct dp_id dp_id,	struct msg_ue_cdr *ue_cdr)
+dp_ue_cdr_flush(struct dp_id dp_id, struct msg_ue_cdr *ue_cdr)
 {
 	struct dp_session_info *session;
 	uint64_t sess_id = ue_cdr->session_id;

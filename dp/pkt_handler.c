@@ -95,10 +95,6 @@ s1u_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 {
 	struct dp_sdf_per_bearer_info *sdf_info[MAX_BURST_SZ];
 	void *adc_ue_info[MAX_BURST_SZ];
-#if defined(SDF_MTR) || defined(APN_MTR)
-	void *mtr_id[MAX_BURST_SZ];
-	uint64_t *mtr_drp_cnt[MAX_BURST_SZ];
-#endif
 	uint32_t *pcc_rule_id;
 	uint32_t *adc_rule_a;
 	uint32_t adc_rule_b[MAX_BURST_SZ];
@@ -146,15 +142,12 @@ s1u_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 
 	/* Metering */
 #ifdef SDF_MTR
-	get_sdf_mtr_id(&sdf_info[0], &mtr_id[0], &mtr_drp_cnt[0], n);
-
-	mtr_process_pkt(&mtr_id[0], &mtr_drp_cnt[0], pkts, n, &pkts_mask);
+	sdf_mtr_process_pkt(&sdf_info[0], &adc_ue_info[0], &adc_pkts_mask,
+		pkts, n, &pkts_mask);
 #endif	/* SDF_MTR */
 
 #ifdef APN_MTR
-	get_apn_mtr_id(&sdf_info[0], &mtr_id[0], &mtr_drp_cnt[0], n);
-
-	mtr_process_pkt(&mtr_id[0], &mtr_drp_cnt[0], pkts, n, &pkts_mask);
+	apn_mtr_process_pkt(&sdf_info[0], UL_FLOW, pkts, n, &pkts_mask);
 #endif	/* APN_MTR */
 
 	/* Update CDRs*/
@@ -194,10 +187,6 @@ sgi_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	struct dp_sdf_per_bearer_info *sdf_info[MAX_BURST_SZ];
 	void *adc_ue_info[MAX_BURST_SZ];
 	struct dp_session_info *si[MAX_BURST_SZ];
-#if defined(SDF_MTR) || defined(APN_MTR)
-	void *mtr_id[MAX_BURST_SZ];
-	uint64_t *mtr_drp_cnt[MAX_BURST_SZ];
-#endif
 	uint32_t *pcc_rule_id;
 	uint32_t *adc_rule_a;
 	uint32_t adc_rule_b[MAX_BURST_SZ];
@@ -246,15 +235,12 @@ sgi_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 
 	/* Metering */
 #ifdef SDF_MTR
-	get_sdf_mtr_id(&sdf_info[0], &mtr_id[0], &mtr_drp_cnt[0], n);
-
-	mtr_process_pkt(&mtr_id[0], &mtr_drp_cnt[0], pkts, n, &pkts_mask);
+	sdf_mtr_process_pkt(&sdf_info[0], &adc_ue_info[0], &adc_pkts_mask,
+		pkts, n, &pkts_mask);
 #endif	/* SDF_MTR */
 
 #ifdef APN_MTR
-	get_apn_mtr_id(&sdf_info[0], &mtr_id[0], &mtr_drp_cnt[0], n);
-
-	mtr_process_pkt(&mtr_id[0], &mtr_drp_cnt[0], pkts, n, &pkts_mask);
+	apn_mtr_process_pkt(&sdf_info[0], DL_FLOW, pkts, n, &pkts_mask);
 #endif	/* APN_MTR */
 
 	/* Update CDRs*/

@@ -96,10 +96,7 @@ void parse_adc_rules(struct dp_id dp_id)
 
 	uint32_t lines = 1, line = 0;
 	uint32_t longest_line = 0, line_length = 0;
-	uint32_t i;
 	const char *delimit = " \n\t";
-	char **sponsor_ids = (char **)rte_calloc_socket(NULL, sizeof(char *),
-				lines, RTE_CACHE_LINE_SIZE, rte_socket_id());
 	struct in_addr addr;
 
 	while (!feof(adc_rule_file)) {
@@ -224,18 +221,18 @@ void simu_cp(void)
 {
 	uint32_t sess_id = 1;
 	struct dp_id dp_id;
-	int i = 0, j;
-	int rule_id = 0, prio = 0;
-	char buf[250];
+	int i = 0;
 	struct rte_cfgfile *file = rte_cfgfile_load(SIMU_CP_FILE, 0);
 	if (file == NULL)
 		rte_exit(EXIT_FAILURE, "Cannot load configuration profile %s\n",
 				SIMU_CP_FILE);
 
+	uint32_t enb_ip = 0;
+#ifdef NG4T_SIMU
 	uint32_t max_ue_ran = 0;
 	uint32_t max_enb_ran = 0;
-	uint32_t enb_ip = 0;
 	uint32_t enb_ip_idx = 0;
+#endif
 	uint32_t enb_teid = 0;
 	uint32_t ue_ip_s = 0;
 	uint32_t ue_ip_s_range = 0;
@@ -335,8 +332,6 @@ void simu_cp(void)
 	struct pkt_filter sdf_filter_entry;
 	dp_id.id = 12345;
 	sprintf(dp_id.name, "SDF_FILTER_TABLE");
-	if (sdf_filter_table_create(dp_id, max_entries) < 0)
-		rte_exit(EXIT_FAILURE,"SDF filter table create fail !!!");
 	for (i = 0; i < max_rules; i++) {
 		sdf_filter_entry.pcc_rule_id = i + 1;
 		sdf_filter_entry.precedence = 0x1fffffff - (i + 1);
@@ -372,17 +367,12 @@ void simu_cp(void)
 #ifdef ADC_UPFRONT
 	/* Create & add entry in ADC Rule Table*/
 	sprintf(dp_id.name, "ADC_RULE_TABLE");
-	if (adc_table_create(dp_id, max_entries) < 0)
-		rte_exit(EXIT_FAILURE, "ADC table create fail !!!");
 
 	parse_adc_rules(dp_id);
 #endif /* ADC_UPFRONT*/
 	/* Create & update Meter Profile table*/
 	struct mtr_entry mtr_entry;
 	sprintf(dp_id.name, "METER_TABLE");
-
-	if (meter_profile_table_create(dp_id, max_mtr_profile_entries) < 0)
-		rte_exit(EXIT_FAILURE, "Meter profile table create fail !!!");
 
 	/* The CIR is set in Bytes per sec. Before configuring please convert
 	 * MBR from kbps to Byte/sec.
@@ -432,23 +422,21 @@ void simu_cp(void)
 	memset(pcc_info.sponsor_id, 0, sizeof(pcc_info.sponsor_id));
 	memset(pcc_info.rule_name, 0, sizeof(pcc_info.rule_name));
 	sprintf(dp_id.name, "PCC_RULE_TABLE");
-	if (pcc_table_create(dp_id, max_entries) < 0)
-		rte_exit(EXIT_FAILURE,"PCC table create fail !!!");
 	/* PCC entry for default rule */
 	pcc_info.rule_id = max_rules + 1;
-	pcc_info.mtr_profile_index = 1;
+	pcc_info.qos.ul_mtr_profile_index = 1;
+	pcc_info.qos.dl_mtr_profile_index = 1;
 	pcc_entry_add(dp_id, pcc_info);
 
 	pcc_info.rule_id = max_rules + 2;
-	pcc_info.mtr_profile_index = 1;
 	pcc_entry_add(dp_id, pcc_info);
 
 	for (i = 0; i < max_rules; i++) {
 		pcc_info.rule_id = i + 1;
 		if (i < max_ul_rules)
-			pcc_info.mtr_profile_index = UL_SDF_MTR_IDX;
+			pcc_info.qos.ul_mtr_profile_index = UL_SDF_MTR_IDX;
 		else
-			pcc_info.mtr_profile_index = DL_SDF_MTR_IDX;
+			pcc_info.qos.dl_mtr_profile_index = DL_SDF_MTR_IDX;
 		if (pcc_entry_add(dp_id, pcc_info) < 0 )
 			rte_exit(EXIT_FAILURE,"PCC entry add fail !!!");
 	}
@@ -456,8 +444,6 @@ void simu_cp(void)
 	/* Create Bearer Session Information*/
 	int s;
 	sprintf(dp_id.name, "BEAR_SESS_TABLE");
-	if (session_table_create(dp_id, max_ue_sess) < 0)
-		rte_exit(EXIT_FAILURE,"Bearer Session table create fail !!!");
 	if (dedicated_bearer == 0) {
 		/* Default Bearer Config*/
 		for (s = 0; s < max_ue_sess; s++) {
@@ -475,7 +461,8 @@ void simu_cp(void)
 			enb_ip = enb_ip;
 #endif
 
-			si.apn_mtr_idx = APN_MTR_IDX;
+			si.ul_apn_mtr_idx = APN_MTR_IDX;
+			si.dl_apn_mtr_idx = APN_MTR_IDX;
 			si.ipcan_dp_bearer_cdr.charging_id = 10;
 			si.ipcan_dp_bearer_cdr.pdn_conn_charging_id = 10;
 			si.ue_addr.iptype = IPTYPE_IPV4;
@@ -548,7 +535,8 @@ void simu_cp(void)
 			enb_ip = enb_ip;
 #endif
 
-			si.apn_mtr_idx = APN_MTR_IDX;
+			si.ul_apn_mtr_idx = APN_MTR_IDX;
+			si.dl_apn_mtr_idx = APN_MTR_IDX;
 			si.ipcan_dp_bearer_cdr.charging_id = 10;
 			si.ipcan_dp_bearer_cdr.pdn_conn_charging_id = 10;
 			si.ue_addr.iptype = IPTYPE_IPV4;
@@ -595,7 +583,8 @@ void simu_cp(void)
 			enb_ip = enb_ip;
 #endif
 
-			si.apn_mtr_idx = APN_MTR_IDX;
+			si.ul_apn_mtr_idx = APN_MTR_IDX;
+			si.dl_apn_mtr_idx = APN_MTR_IDX;
 			si.ipcan_dp_bearer_cdr.charging_id = 10;
 			si.ipcan_dp_bearer_cdr.pdn_conn_charging_id = 10;
 			si.ue_addr.iptype = IPTYPE_IPV4;

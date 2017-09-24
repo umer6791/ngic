@@ -300,17 +300,17 @@ set_bearer_tft_ie(gtpv2c_header *header, enum ie_instance instance,
 		packet_filter_component *component =
 				(packet_filter_component *) &cpf[1];
 		cpf->pkt_filter_id = i;
-		cpf->direction = pf->direction;
+		cpf->direction = pf->pkt_fltr.direction;
 		cpf->spare = 0;
-		cpf->precedence = pf->precedence;
+		cpf->precedence = pf->pkt_fltr.precedence;
 		cpf->pkt_filter_length = 0;
 
-		if (pf->remote_ip_mask != 0) {
+		if (pf->pkt_fltr.remote_ip_mask != 0) {
 			component->type = IPV4_REMOTE_ADDRESS;
 			component->type_union.ipv4.ipv4 =
-					pf->remote_ip_addr;
+					pf->pkt_fltr.remote_ip_addr;
 			component->type_union.ipv4.mask.s_addr = UINT32_MAX
-			    >> (32 - pf->remote_ip_mask);
+			    >> (32 - pf->pkt_fltr.remote_ip_mask);
 			component =
 			    (packet_filter_component *)
 			    &component->type_union.ipv4.next_component;
@@ -318,12 +318,12 @@ set_bearer_tft_ie(gtpv2c_header *header, enum ie_instance instance,
 				sizeof(component->type_union.ipv4);
 		}
 
-		if (pf->local_ip_mask != 0) {
+		if (pf->pkt_fltr.local_ip_mask != 0) {
 			component->type = IPV4_LOCAL_ADDRESS;
 			component->type_union.ipv4.ipv4 =
-					pf->local_ip_addr;
+					pf->pkt_fltr.local_ip_addr;
 			component->type_union.ipv4.mask.s_addr =
-					UINT32_MAX >> (32 - pf->local_ip_mask);
+				UINT32_MAX >> (32 - pf->pkt_fltr.local_ip_mask);
 			component =
 			    (packet_filter_component *)
 			    &component->type_union.ipv4.next_component;
@@ -331,9 +331,9 @@ set_bearer_tft_ie(gtpv2c_header *header, enum ie_instance instance,
 				sizeof(component->type_union.ipv4);
 		}
 
-		if (pf->proto_mask != 0) {
+		if (pf->pkt_fltr.proto_mask != 0) {
 			component->type = PROTOCOL_ID_NEXT_HEADER;
-			component->type_union.proto.proto = pf->proto;
+			component->type_union.proto.proto = pf->pkt_fltr.proto;
 			component =
 			    (packet_filter_component *)
 			    &component->type_union.proto.next_component;
@@ -341,22 +341,23 @@ set_bearer_tft_ie(gtpv2c_header *header, enum ie_instance instance,
 				sizeof(component->type_union.proto);
 		}
 
-		if (pf->remote_port_low == pf->remote_port_high) {
+		if (pf->pkt_fltr.remote_port_low ==
+			pf->pkt_fltr.remote_port_high) {
 			component->type = SINGLE_REMOTE_PORT;
 			component->type_union.port.port =
-					pf->remote_port_low;
+					pf->pkt_fltr.remote_port_low;
 			component =
 			    (packet_filter_component *)
 			    &component->type_union.port.next_component;
 			cpf->pkt_filter_length +=
 				sizeof(component->type_union.port);
-		} else if (pf->remote_port_low != 0 ||
-				pf->remote_port_high != UINT16_MAX) {
+		} else if (pf->pkt_fltr.remote_port_low != 0 ||
+				pf->pkt_fltr.remote_port_high != UINT16_MAX) {
 			component->type = REMOTE_PORT_RANGE;
 			component->type_union.port_range.port_low =
-					pf->remote_port_low;
+					pf->pkt_fltr.remote_port_low;
 			component->type_union.port_range.port_high =
-					pf->remote_port_high;
+					pf->pkt_fltr.remote_port_high;
 			component =
 			    (packet_filter_component *)
 			    &component->type_union.port_range.next_component;
@@ -364,22 +365,23 @@ set_bearer_tft_ie(gtpv2c_header *header, enum ie_instance instance,
 				sizeof(component->type_union.port_range);
 		}
 
-		if (pf->local_port_low == pf->local_port_high) {
+		if (pf->pkt_fltr.local_port_low ==
+			pf->pkt_fltr.local_port_high) {
 			component->type = SINGLE_LOCAL_PORT;
 			component->type_union.port.port =
-					pf->local_port_low;
+					pf->pkt_fltr.local_port_low;
 			component =
 			    (packet_filter_component *)
 			    &component->type_union.port.next_component;
 			cpf->pkt_filter_length +=
 				sizeof(component->type_union.port);
-		} else if (pf->local_port_low != 0 ||
-				pf->local_port_high != UINT16_MAX) {
+		} else if (pf->pkt_fltr.local_port_low != 0 ||
+				pf->pkt_fltr.local_port_high != UINT16_MAX) {
 			component->type = LOCAL_PORT_RANGE;
 			component->type_union.port_range.port_low =
-					pf->local_port_low;
+					pf->pkt_fltr.local_port_low;
 			component->type_union.port_range.port_high =
-					pf->local_port_high;
+					pf->pkt_fltr.local_port_high;
 			component =
 			    (packet_filter_component *)
 			    &component->type_union.port_range.next_component;

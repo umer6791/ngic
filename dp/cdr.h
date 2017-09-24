@@ -28,7 +28,7 @@
 #define DEFAULT_CDR_PATH  "./cdr/"
 
 #define CDR_TIME_FIELD_INDEX 1
-#define NUM_CDR_FIELDS       17
+#define NUM_CDR_FIELDS       19
 
 #define RECORD_TIME_FORMAT "%Y%m%d%H%M%S"
 #define RECORD_TIME_LENGTH 16 /* buffer size for RECORD_TIME_FORMAT-ed string */
@@ -155,4 +155,22 @@ export_session_adc_record(struct adc_rules *adc_rule,
 void
 export_cdr_record(struct dp_session_info *session, char *name,
 			uint32_t id, struct ipcan_dp_bearer_cdr *charge_record);
+
+/**
+ * Export CDR record to file.
+ * @param session
+ *     dp bearer session.
+ * @param name
+ *     string to identify the type of CDR.
+ * @param id
+ *     identification number based on cdr type. It can be
+ *     either bearerid, adc rule id, flow id or rating group.
+ * @param drops
+ *     drop stats.
+ *
+ * @return
+ * Void
+ */
+void export_mtr(struct dp_session_info *session, char *name,
+		uint32_t id, uint64_t drops);
 #endif /* _CDR_H */

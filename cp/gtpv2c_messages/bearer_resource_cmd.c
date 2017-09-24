@@ -114,7 +114,7 @@ parse_bearer_resource_cmd(gtpv2c_header *gtpv2c_rx,
  *   \- < 0 for all other errors
  */
 static int
-parse_packet_filter(create_pkt_filter *cpf, packet_filter *pf)
+parse_packet_filter(create_pkt_filter *cpf, pkt_fltr *pf)
 {
 	reset_packet_filter(pf);
 
@@ -280,6 +280,7 @@ install_packet_filters(eps_bearer *ded_bearer,
 	uint8_t tad_filter_index = 0;
 	uint8_t bearer_filter_id = 0;
 	int ret;
+	uint64_t mbr;
 
 	create_pkt_filter *cpf = (create_pkt_filter *) &tad[1];
 
@@ -308,13 +309,13 @@ install_packet_filters(eps_bearer *ded_bearer,
 		}
 
 		packet_filter pf;
-		ret = parse_packet_filter(cpf, &pf);
+		ret = parse_packet_filter(cpf, &pf.pkt_fltr);
 		if (ret)
 			return -ret;
 
-		int dp_packet_filter_id = get_packet_filter_id(&pf);
+		int dp_packet_filter_id = get_packet_filter_id(&pf.pkt_fltr);
 
-		pf.rating_group = ded_bearer->qos.qos.qci;
+		pf.pkt_fltr.rating_group = ded_bearer->qos.qos.qci;
 
 		if (dp_packet_filter_id == -ENOENT) {
 			fprintf(stderr,
@@ -323,8 +324,15 @@ install_packet_filters(eps_bearer *ded_bearer,
 			/* TODO: Implement dynamic installation of packet
 			 * filters on DP  - remove continue*/
 			continue;
-			dp_packet_filter_id = install_packet_filter(&pf,
-				get_br(ded_bearer->qos.qos.dl_mbr));
+			mbr = get_br(ded_bearer->qos.qos.ul_mbr);
+			/* Convert bit rate into Bytes as CIR stored in bytes */
+			pf.ul_mtr_idx = meter_profile_index_get(mbr);
+
+			mbr = get_br(ded_bearer->qos.qos.dl_mbr);
+			/* Convert bit rate into Bytes as CIR stored in bytes */
+			pf.dl_mtr_idx = meter_profile_index_get(mbr);
+
+			dp_packet_filter_id = install_packet_filter(&pf);
 			if (dp_packet_filter_id < 0)
 				return GTPV2C_CAUSE_SYSTEM_FAILURE;
 		}

@@ -35,7 +35,10 @@
 #define STATIC_PCC_FILE "../config/static_pcc.cfg"
 #define ADC_RULE_FILE "../config/adc_rules.cfg"
 
-typedef struct packet_filter_t {
+extern uint16_t ulambr_idx;
+extern uint16_t dlambr_idx;
+
+typedef struct pkt_fltr_t {
 	uint8_t direction;
 	uint32_t precedence;
 	struct in_addr remote_ip_addr;
@@ -49,9 +52,15 @@ typedef struct packet_filter_t {
 	uint16_t local_port_low;
 	uint16_t local_port_high;
 	uint16_t rating_group;
+} pkt_fltr;
+
+typedef struct packet_filter_t {
+	pkt_fltr pkt_fltr;
+	uint16_t ul_mtr_idx;
+	uint16_t dl_mtr_idx;
 } packet_filter;
 
-extern const packet_filter catch_all;
+extern const pkt_fltr catch_all;
 
 void
 push_all_packet_filters(void);
@@ -64,15 +73,12 @@ push_packet_filter(uint16_t index);
  * Installs a packet filter in the CP & DP.
  * @param new_packet_filter
  *   A packet filter yet to be installed
- * @param dl_mbr
- *   downlink maximum bit rate
  * @return
  *   \- >= 0 - on success - indicates index of packet filter
  *   \- < 0 - on error
  */
 int
-install_packet_filter(const packet_filter *new_packet_filter,
-		uint64_t dl_mbr);
+install_packet_filter(const packet_filter *new_packet_filter);
 
 /**
  * Returns the packet filter index.
@@ -82,7 +88,7 @@ install_packet_filter(const packet_filter *new_packet_filter,
  *   Packet filter index matching packet filter 'pf'
  */
 int
-get_packet_filter_id(const packet_filter *pf);
+get_packet_filter_id(const pkt_fltr *pf);
 
 /**
  * Clears the packet filter at '*pf' to accept all packets.
@@ -90,7 +96,7 @@ get_packet_filter_id(const packet_filter *pf);
  *   The packet filter to reset
  */
 void
-reset_packet_filter(packet_filter *pf);
+reset_packet_filter(pkt_fltr *pf);
 
 /**
  * Returns direction of packet filter (uplink and/or downlink).
@@ -125,4 +131,5 @@ init_packet_filters(void);
 
 void parse_adc_rules(void);
 
+int meter_profile_index_get(uint64_t cir);
 #endif

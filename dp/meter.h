@@ -37,29 +37,6 @@
  *	- -1 on failure
  */
 int
-mtr_cfg_entry(int msg_id, void *msg_payload);
-
-/**
- * Process APN metering based on meter index.
- *
- * @param mtr_id
- *	meter id
- * @param mtr_drp
- *	count of pkts dropped due to meter action.
- * @param pkt
- *	mbuf pointer
- * @param n
- *	num. of pkts.
- * @param pkts_mask
- *	bit mask to process the pkts,
- *	reset bit to free the pkt.
- *
- * @return
- *	- 0 on success
- *	- -1 on failure
- */
-int
-mtr_process_pkt(void **mtr_id, uint64_t **mtr_drp, struct rte_mbuf **pkt,
-			uint32_t n, uint64_t *pkts_mask);
+mtr_cfg_entry(int msg_id, struct rte_meter_srtcm *msg_payload);
 
 #endif				/* _METER_H_ */

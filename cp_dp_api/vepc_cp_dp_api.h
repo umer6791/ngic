@@ -204,6 +204,18 @@ struct  redirect_info {
 };
 
 /**
+ * QoS parameters structure for DP
+ */
+struct qos_info {
+	uint16_t ul_mtr_profile_index; /* index 0 to skip */
+	uint16_t dl_mtr_profile_index; /* index 0 to skip */
+	uint16_t ul_gbr_profile_index; /* index 0 to skip */
+	uint16_t dl_gbr_profile_index; /* index 0 to skip */
+	uint8_t qci;    /*QoS Class Identifier*/
+	uint8_t arp;    /*Allocation and Retention Priority*/
+};
+
+/**
  * Application Detection and Control Rule Filter config structure.
  */
 struct adc_rules {
@@ -237,8 +249,8 @@ struct adc_rules {
 	struct tm rule_activation_time;		/* Rule Start time*/
 	struct tm rule_deactivation_time;	/* Rule Stop time*/
 	struct  redirect_info redirect_info;	/* Redirect  info*/
-	uint32_t precedence;				/* Precedence*/
-	uint32_t meter_profile_index;		/* Metering profile idx*/
+	uint32_t precedence;			/* Precedence*/
+	uint16_t mtr_profile_index;		/* index 0 to skip*/
 
 	/* TBD: we don't have a reference for tariff_time (sec, min, hours???)
 	 * so worry about implementation when we implement it
@@ -331,8 +343,8 @@ struct pcc_rules {
 						 * sponsor) willing to pay for the operator's charge*/
 	struct  redirect_info redirect_info;	/* Redirect  info*/
 	uint32_t precedence;			/* Precedence*/
-	uint32_t mtr_profile_index;		/* Meter profile index*/
 	uint64_t drop_pkt_count;		/* Drop count*/
+	struct qos_info qos;			/* QoS Parameters*/
 } __attribute__((packed, aligned(RTE_CACHE_LINE_SIZE)));
 
 struct cdr {
@@ -409,7 +421,8 @@ struct session_info {
 									 * given to this session like
 									 * Internet, Management, CIPA etc
 									 */
-	uint32_t apn_mtr_idx;						/* APN meter profile index*/
+	uint32_t ul_apn_mtr_idx;		/* UL APN meter profile index*/
+	uint32_t dl_apn_mtr_idx;		/* DL APN meter profile index*/
 } __attribute__((packed, aligned(RTE_CACHE_LINE_SIZE)));
 
 

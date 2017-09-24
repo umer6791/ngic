@@ -30,15 +30,12 @@
 #include "sdnODLnbcurl.h"
 #endif
 
-#define C_BURST_SIZE 3072
-#define E_BURST_SIZE 3072
-
 const char *direction_str[] = {
 		[TFT_DIRECTION_DOWNLINK_ONLY] = "DOWNLINK_ONLY ",
 		[TFT_DIRECTION_UPLINK_ONLY] = "UPLINK_ONLY   ",
 		[TFT_DIRECTION_BIDIRECTIONAL] = "BIDIRECTIONAL " };
 
-const packet_filter catch_all = {
+const pkt_fltr catch_all = {
 		.direction = TFT_DIRECTION_BIDIRECTIONAL,
 		.precedence = 0,
 		.remote_ip_addr.s_addr = 0,
@@ -52,14 +49,22 @@ const packet_filter catch_all = {
 		.local_port_low = 0,
 		.local_port_high = UINT16_MAX, };
 
+struct mtr_entry *mtr_profiles[METER_PROFILE_SDF_TABLE_SIZE] = {
+		[0] = NULL, /* index = 0 is invalid */
+};
+
 packet_filter *packet_filters[SDF_FILTER_TABLE_SIZE] = {
 		[0] = NULL, /* index = 0 is invalid */
 };
 
+uint16_t num_mtr_profiles;
 uint16_t num_packet_filters = FIRST_FILTER_ID;
 uint32_t num_adc_rules;
 uint32_t adc_rule_id[MAX_ADC_RULES];
-
+uint64_t cbs;
+uint64_t ebs;
+uint16_t ulambr_idx;
+uint16_t dlambr_idx;
 static uint32_t name_to_num(char *name)
 {
 	uint32_t num = 0;
@@ -68,28 +73,6 @@ static uint32_t name_to_num(char *name)
 	for (i = strlen(name) - 1; i >= 0; i--)
 		num = (num << 4) | (name[i] - 'a');
 	return num;
-}
-/**
- * Adds meter entry in the DP meter table
- * @param dl_gbr
- *   downlink guaranteed bit rate
- * @param index
- *   meter profile index
- */
-static void
-add_mtr_entry(uint64_t dl_gbr, uint16_t index)
-{
-	struct mtr_entry mtr_entry;
-	struct dp_id dp_id = { .id = DPN_ID };
-	/*cir expected value in Bytes, hence divide mbr by 8 */
-	mtr_entry.mtr_param.cir = dl_gbr / 8;
-
-	mtr_entry.mtr_param.cbs = C_BURST_SIZE;
-	mtr_entry.mtr_param.ebs = E_BURST_SIZE;
-
-	mtr_entry.metering_method = SRTCM_COLOR_BLIND;
-	mtr_entry.mtr_profile_index = index;
-	meter_profile_entry_add(dp_id, mtr_entry);
 }
 
 void
@@ -105,56 +88,56 @@ void
 push_packet_filter(uint16_t index)
 {
 	struct dp_id dp_id = { .id = DPN_ID };
-	packet_filter *filter = packet_filters[index];
+	pkt_fltr filter = packet_filters[index]->pkt_fltr;
 
 	char local_ip[INET_ADDRSTRLEN];
 	char remote_ip[INET_ADDRSTRLEN];
 
 	snprintf(local_ip, sizeof(local_ip), "%s",
-	    inet_ntoa(filter->local_ip_addr));
+	    inet_ntoa(filter.local_ip_addr));
 	snprintf(remote_ip, sizeof(remote_ip), "%s",
-	    inet_ntoa(filter->remote_ip_addr));
+	    inet_ntoa(filter.remote_ip_addr));
 
 	struct pkt_filter pktf = {
 			.pcc_rule_id = index,
-			.precedence = filter->precedence,
+			.precedence = filter.precedence,
 	};
 
-	if (filter->direction & TFT_DIRECTION_DOWNLINK_ONLY) {
+	if (filter.direction & TFT_DIRECTION_DOWNLINK_ONLY) {
 		snprintf(pktf.u.rule_str, MAX_LEN, "%s/%"PRIu8" %s/%"PRIu8
 			" %"PRIu16" : %"PRIu16" %"PRIu16" : %"PRIu16
 			" 0x%"PRIx8"/0x%"PRIx8"\n",
-			remote_ip, filter->remote_ip_mask, local_ip,
-			filter->local_ip_mask,
-			ntohs(filter->remote_port_low),
-			ntohs(filter->remote_port_high),
-			ntohs(filter->local_port_low),
-			ntohs(filter->local_port_high),
-			filter->proto, filter->proto_mask);
-		if (filter->direction ==
+			remote_ip, filter.remote_ip_mask, local_ip,
+			filter.local_ip_mask,
+			ntohs(filter.remote_port_low),
+			ntohs(filter.remote_port_high),
+			ntohs(filter.local_port_low),
+			ntohs(filter.local_port_high),
+			filter.proto, filter.proto_mask);
+		if (filter.direction ==
 				TFT_DIRECTION_BIDIRECTIONAL)
 			fprintf(stderr, "Ignoring uplink portion of packet "
 					"filter for now\n");
-	} else if (filter->direction & TFT_DIRECTION_UPLINK_ONLY) {
+	} else if (filter.direction & TFT_DIRECTION_UPLINK_ONLY) {
 		snprintf(pktf.u.rule_str, MAX_LEN, "%s/%"PRIu8" %s/%"PRIu8" %"
 			PRIu16" : %"PRIu16" %"PRIu16" : %"PRIu16" 0x%"
 			PRIx8"/0x%"PRIx8"\n",
-			local_ip, filter->local_ip_mask, remote_ip,
-			filter->remote_ip_mask,
-			ntohs(filter->local_port_low),
-			ntohs(filter->local_port_high),
-			ntohs(filter->remote_port_low),
-			ntohs(filter->remote_port_high),
-			filter->proto, filter->proto_mask);
+			local_ip, filter.local_ip_mask, remote_ip,
+			filter.remote_ip_mask,
+			ntohs(filter.local_port_low),
+			ntohs(filter.local_port_high),
+			ntohs(filter.remote_port_low),
+			ntohs(filter.remote_port_high),
+			filter.proto, filter.proto_mask);
 	}
 
 	printf("Installing %s pkt_filter #%"PRIu16" p-%"PRIu8": %s",
-	    direction_str[filter->direction], index, filter->precedence,
+	    direction_str[filter.direction], index, filter.precedence,
 	    pktf.u.rule_str);
 
 	struct pcc_rules pcc_entry = {
 			.gate_status = OPEN,
-			.rating_group = filter->rating_group,
+			.rating_group = filter.rating_group,
 			.monitoring_key = 0,
 			.rule_status = 0,
 			.report_level = 0,
@@ -163,13 +146,14 @@ push_packet_filter(uint16_t index)
 			.mute_notify = 0,
 			.metering_method = 0,
 			.session_cont = 0,
-			.precedence = filter->precedence,
+			.precedence = filter.precedence,
 			.redirect_info.info = 0,
 			.service_id = 0,
 			.rule_id = index,
-			.mtr_profile_index = index,
 	};
 
+	pcc_entry.qos.ul_mtr_profile_index = packet_filters[index]->ul_mtr_idx;
+	pcc_entry.qos.dl_mtr_profile_index = packet_filters[index]->dl_mtr_idx;
 	memset(pcc_entry.sponsor_id, 0, sizeof(pcc_entry.sponsor_id));
 	strncpy(pcc_entry.rule_name, "SimuRule", sizeof(pcc_entry.rule_name));
 
@@ -181,8 +165,7 @@ push_packet_filter(uint16_t index)
 }
 
 int
-install_packet_filter(const packet_filter *new_packet_filter,
-		uint64_t dl_mbr)
+install_packet_filter(const packet_filter *new_packet_filter)
 {
 	if (num_packet_filters >= SDF_FILTER_TABLE_SIZE)
 		return -ENOMEM;
@@ -201,7 +184,6 @@ install_packet_filter(const packet_filter *new_packet_filter,
 	memcpy(filter, new_packet_filter, sizeof(packet_filter));
 	uint16_t index = num_packet_filters;
 
-	add_mtr_entry(dl_mbr, index);
 	num_packet_filters++;
 	packet_filters[index] = filter;
 
@@ -215,11 +197,12 @@ install_packet_filter(const packet_filter *new_packet_filter,
 }
 
 int
-get_packet_filter_id(const packet_filter *pf)
+get_packet_filter_id(const pkt_fltr *pf)
 {
 	uint16_t index;
 	for (index = FIRST_FILTER_ID; index < num_packet_filters; ++index) {
-		if (!memcmp(pf, packet_filters[index], sizeof(packet_filter)))
+		if (!memcmp(pf, &packet_filters[index]->pkt_fltr,
+				sizeof(pkt_fltr)))
 			return index;
 	}
 	return -ENOENT;
@@ -229,7 +212,7 @@ get_packet_filter_id(const packet_filter *pf)
 uint8_t
 get_packet_filter_direction(uint16_t index)
 {
-	return packet_filters[index]->direction;
+	return packet_filters[index]->pkt_fltr.direction;
 }
 
 
@@ -243,9 +226,108 @@ get_packet_filter(uint16_t index)
 
 
 void
-reset_packet_filter(packet_filter *pf)
+reset_packet_filter(pkt_fltr *pf)
 {
-	memcpy(pf, &catch_all, sizeof(packet_filter));
+	memcpy(pf, &catch_all, sizeof(pkt_fltr));
+}
+
+int meter_profile_index_get(uint64_t cir)
+{
+	int index;
+	uint64_t CIR = cir >> 3; /* Convert bit rate into bytes */
+
+	for (index = 0; index < num_mtr_profiles; index++) {
+		if (mtr_profiles[index]->mtr_param.cir == CIR)
+			return mtr_profiles[index]->mtr_profile_index;
+	}
+
+	return 0;
+}
+
+static int
+install_meter_profiles(struct dp_id dp_id, struct mtr_entry new_mtr_entry)
+{
+	if (num_mtr_profiles >= METER_PROFILE_SDF_TABLE_SIZE)
+		return -ENOMEM;
+
+	struct mtr_entry *mtr_profile = rte_zmalloc_socket(NULL,
+			sizeof(new_mtr_entry),
+			RTE_CACHE_LINE_SIZE, rte_socket_id());
+	if (mtr_profile == NULL) {
+		fprintf(stderr, "Failure to allocate memeory for meter profile "
+				"structure: %s (%s:%d)\n",
+				rte_strerror(rte_errno),
+				__FILE__,
+				__LINE__);
+		return -ENOMEM;
+	}
+
+	memcpy(mtr_profile, &new_mtr_entry, sizeof(new_mtr_entry));
+
+	mtr_profiles[num_mtr_profiles] = mtr_profile;
+	num_mtr_profiles++;
+
+#ifdef SDN_ODL_BUILD
+	if (dpn_id)
+		meter_profile_entry_add(dp_id, new_mtr_entry);
+#else
+	meter_profile_entry_add(dp_id, new_mtr_entry);
+#endif
+	return num_mtr_profiles;
+}
+
+static void
+init_mtr_profile(void)
+{
+	unsigned no_of_idx = 0;
+	unsigned i = 0;
+	struct rte_cfgfile *file =
+			rte_cfgfile_load("../config/meter_profile.cfg", 0);
+	const char *entry;
+	struct dp_id dp_id = { .id = DPN_ID };
+
+	if (file == NULL)
+		rte_panic("Cannot load configuration file %s\n",
+				STATIC_PCC_FILE);
+
+	entry = rte_cfgfile_get_entry(file, "GLOBAL", "NUM_OF_IDX");
+	if (!entry)
+		rte_panic("Invalid metering index\n");
+	no_of_idx = atoi(entry);
+
+	for (i = 1; i <= no_of_idx; ++i) {
+		char sectionname[64];
+		struct mtr_entry mtr_entry;
+
+		snprintf(sectionname, sizeof(sectionname),
+				"ENTRY_%u", i);
+
+		entry = rte_cfgfile_get_entry(file, sectionname,
+				"CIR");
+		if (!entry)
+			rte_panic("Invalid CIR configuration\n");
+		mtr_entry.mtr_param.cir = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname,
+				"CBS");
+		if (!entry)
+			rte_panic("Invalid CBS configuration\n");
+		mtr_entry.mtr_param.cbs = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname,
+				"EBS");
+		if (!entry)
+			rte_panic("Invalid EBS configuration\n");
+		mtr_entry.mtr_param.ebs = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname,
+				"MTR_PROFILE_IDX");
+		if (!entry)
+			rte_panic("Invalid MTR_PROFILE_IDX configuration\n");
+		mtr_entry.mtr_profile_index = atoi(entry);
+
+		install_meter_profiles(dp_id, mtr_entry);
+	}
 }
 
 
@@ -261,6 +343,9 @@ init_packet_filters(void)
 		rte_panic("Cannot load configuration file %s\n",
 				STATIC_PCC_FILE);
 
+	/* init dpn meter profile table before configuring pcc/adc rules*/
+	init_mtr_profile();
+
 	entry = rte_cfgfile_get_entry(file, "GLOBAL", "NUM_PACKET_FILTERS");
 
 	if (!entry)
@@ -268,13 +353,25 @@ init_packet_filters(void)
 
 
 	num_packet_filters = atoi(entry);
+	entry = rte_cfgfile_get_entry(file,
+				"GLOBAL", "UL_AMBR_MTR_PROFILE_IDX");
+
+	if (!entry)
+		rte_panic("Invalid AMBR configuration file format\n");
+	ulambr_idx = atoi(entry);
+
+	entry = rte_cfgfile_get_entry(file,
+				"GLOBAL", "DL_AMBR_MTR_PROFILE_IDX");
+
+	if (!entry)
+		rte_panic("Invalid AMBR configuration file format\n");
+	dlambr_idx = atoi(entry);
 
 	for (i = 0; i < num_packet_filters; ++i) {
 		char sectionname[64];
-		uint64_t mbr = 0xffffffff;
 		int ret;
 		struct in_addr tmp_addr;
-		packet_filter pf;
+		pkt_fltr pf;
 		reset_packet_filter(&pf);
 		snprintf(sectionname, sizeof(sectionname),
 				"PACKET_FILTER_%u", i);
@@ -287,14 +384,6 @@ init_packet_filters(void)
 			    "each filter must contain RATING_GROUP entry\n");
 
 		pf.rating_group = atoi(entry);
-
-		entry = rte_cfgfile_get_entry(file, sectionname, "MBR");
-		if (!entry)
-			rte_panic(
-			    "Invalid pcc configuration file format - "
-			    "each filter must contain MBR entry\n");
-
-		mbr = atoi(entry);
 
 		entry = rte_cfgfile_get_entry(file, sectionname, "DIRECTION");
 		if (entry) {
@@ -383,8 +472,22 @@ init_packet_filters(void)
 		if (entry)
 			pf.local_port_high = htons((uint16_t) atoi(entry));
 
+		packet_filter pkt_filter;
+		pkt_filter.pkt_fltr = pf;
+		entry = rte_cfgfile_get_entry(file,
+					sectionname, "UL_MBR_MTR_PROFILE_IDX");
+		if (!entry)
+			rte_panic("Invalid MTR_PROFILE_IDX configuration\n");
 
-		ret = install_packet_filter(&pf, mbr);
+		pkt_filter.ul_mtr_idx = atoi(entry);
+		entry = rte_cfgfile_get_entry(file,
+					sectionname, "DL_MBR_MTR_PROFILE_IDX");
+
+		if (!entry)
+			rte_panic("Invalid MTR_PROFILE_IDX configuration\n");
+		pkt_filter.dl_mtr_idx = atoi(entry);
+
+		ret = install_packet_filter(&pkt_filter);
 		if (ret < 0) {
 			rte_panic("Failure to install packet filters: "
 					"%s (%s:%d)\n",
@@ -414,10 +517,11 @@ static void print_adc_rule(struct adc_rules *adc_rule)
 	default:
 		printf("ERROR IN ADC RULE");
 	}
-	printf("%8s %15s %15u %15u %15s %15s <\n",
+	printf("%8s %15s %15u %15u %15u %15s %15s <\n",
 			(adc_rule->gate_status == CLOSE) ? "CLOSE" : "OPEN",
 			adc_rule->sponsor_id,
 			adc_rule->service_id,
+			adc_rule->mtr_profile_index,
 			adc_rule->rating_group,
 			adc_rule->tarriff_group,
 			adc_rule->tarriff_time);
@@ -531,6 +635,12 @@ void parse_adc_rules(void)
 				if (!strcmp(service_id, "CIPA"))
 					puts("CIPA Rule");
 			}
+		}
+		{
+			char *mtr_idx = strtok(NULL, delimit);
+
+			if (mtr_idx)
+				entry.mtr_profile_index = atoi(mtr_idx);
 		}
 		{
 			char *rate_group = strtok(NULL, delimit);

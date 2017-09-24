@@ -101,7 +101,7 @@ struct mtr_table {
 };
 
 static enum policer_action policer_table[e_RTE_METER_COLORS][e_RTE_METER_COLORS] = {
-	{GREEN, RED, RED},
+	{GREEN, YELLOW, RED},
 	{DROP, YELLOW, RED},
 	{DROP, DROP, RED}
 };
@@ -235,7 +235,8 @@ mtr_add_entry(struct mtr_table *mtr_tbl,
 	app_srtcm_params->cbs = mtr_param->cbs;
 	app_srtcm_params->ebs = mtr_param->ebs;
 	mtr_tbl->num_entries++;
-	RTE_LOG(INFO, DP, "MTR_PROFILE ADD: index %d cir:%lu, cbd:%lu, ebs:%lu\n",
+	RTE_LOG(INFO, DP, "MTR_PROFILE ADD: index %d cir:%lu,"
+			" cbs:%lu, ebs:%lu\n",
 			mtr_profile_index, app_srtcm_params->cir,
 			app_srtcm_params->cbs, app_srtcm_params->ebs);
 }
@@ -269,42 +270,135 @@ mtr_del_entry(struct mtr_table *mtr_tbl, uint16_t mtr_profile_index)
 }
 
 int
-mtr_cfg_entry(int msg_id, void *msg_payload)
+mtr_cfg_entry(int msg_id, struct rte_meter_srtcm *msg_payload)
 {
 	struct rte_meter_srtcm *m;
 	struct mtr_table *mtr_tbl = &mtr_profile_tbl;
+	struct rte_meter_srtcm_params *app_srtcm_params =
+					&mtr_tbl->params[msg_id];
 	m = (struct rte_meter_srtcm *)msg_payload;
 	/* NOTE: rte_malloc will be replaced by simple ring_alloc in future*/
 
+	if ((msg_id == 0) || (app_srtcm_params->cir == 0)) {
+		memset(m, 0, sizeof(struct rte_meter_srtcm));
+		return -1;
+	}
+
 	rte_meter_srtcm_config(m, &mtr_tbl->params[msg_id]);
 
+	RTE_LOG(DEBUG, DP, "Configuring MTR index %d\n", msg_id);
 	if ((m)->cir_period == 0)
 		rte_exit(EXIT_FAILURE, "Meter config fail. cir_period is 0!!");
 	return 0;
 }
 
 int
-mtr_process_pkt(void **mtr_id, uint64_t **mtr_drp, struct rte_mbuf **pkt,
-						uint32_t n, uint64_t *pkts_mask)
+sdf_mtr_process_pkt(struct dp_sdf_per_bearer_info **sdf_info,
+			void **adc_ue_info, uint64_t *adc_pkts_mask,
+			struct rte_mbuf **pkt, uint32_t n, uint64_t *pkts_mask)
 {
 	uint64_t current_time;
 	struct rte_meter_srtcm *m;
 	uint32_t i;
+	struct dp_sdf_per_bearer_info *psdf;
+	struct dp_adc_ue_info *adc_ue;
+	struct qos_info *qos;
+	enum policer_action action;
+
 	for (i = 0; i < n; i++) {
 		if (!ISSET_BIT(*pkts_mask, i))
 			continue;
-		if (mtr_id[i] == NULL)
-			continue;
-		m = (struct rte_meter_srtcm *)mtr_id[i];
+		psdf = (struct dp_sdf_per_bearer_info *)sdf_info[i];
+		adc_ue = adc_ue_info[i];
+		qos = &psdf->pcc_info.qos;
+		if (adc_ue)
+			m = &adc_ue->mtr_obj;
+		else
+			m = &psdf->sdf_mtr_obj;
+
 		current_time = rte_rdtsc();
-		if (m == NULL) {
-			RTE_LOG(DEBUG, DP, "MTR not found!!!\n");
+		if (m->cir_period == 0) {
+			RTE_LOG(DEBUG, DP, "SDF: Either MTR not found or"
+				" MTR not configured!!!\n");
 			continue;
 		}
-		if ((app_pkt_handle(m, pkt[i], current_time) == RED)
-			|| (app_pkt_handle(m, pkt[i], current_time) == DROP))
+		action = app_pkt_handle(m, pkt[i], current_time);
+		if ((action == RED)
+			|| (action == YELLOW)
+			|| (action == DROP)) {
 			RESET_BIT(*pkts_mask, i);
-			*mtr_drp[i]++;
+			psdf->sdf_mtr_drops += 1;
+		}
+	}
+	return 0;
+}
+
+static inline enum boolean
+is_qci_gbr(struct qos_info *qos, uint32_t flow)
+{
+	if (flow == UL_FLOW) {
+		if (qos->ul_gbr_profile_index != 0)
+			return TRUE; /*skip AMBR metering.*/
+	} else {
+		if (qos->dl_gbr_profile_index != 0)
+			return TRUE; /*skip AMBR metering.*/
+	}
+	return FALSE;
+}
+
+int
+apn_mtr_process_pkt(struct dp_sdf_per_bearer_info **sdf_info, uint32_t flow,
+			struct rte_mbuf **pkt, uint32_t n, uint64_t *pkts_mask)
+{
+	uint64_t current_time;
+	struct rte_meter_srtcm *m;
+	uint32_t i;
+	struct dp_session_info *si;
+	struct dp_sdf_per_bearer_info *psdf;
+	struct ue_session_info *ue;
+	enum policer_action action;
+	uint64_t *mtr_drops;
+	struct qos_info *qos;
+
+	for (i = 0; i < n; i++) {
+		if (!ISSET_BIT(*pkts_mask, i))
+			continue;
+		psdf = (struct dp_sdf_per_bearer_info *)sdf_info[i];
+		qos = &psdf->pcc_info.qos;
+		if (is_qci_gbr(qos, flow))
+			continue;
+		si = psdf->bear_sess_info;
+		ue = si->ue_info_ptr;
+
+		if (flow == UL_FLOW) {
+			m = &ue->ul_apn_mtr_obj;
+			mtr_drops = &ue->ul_apn_mtr_drops;
+			RTE_LOG(DEBUG, DP, "APN MTR UL LKUP: apn_mtr_id:%u, "
+					"apn_mtr_obj:0x%"PRIx64"\n",
+					ue->ul_apn_mtr_idx,
+					(uint64_t)&ue->ul_apn_mtr_obj);
+		} else {
+			m = &ue->dl_apn_mtr_obj;
+			mtr_drops = &ue->dl_apn_mtr_drops;
+			RTE_LOG(DEBUG, DP, "APN MTR DL LKUP: apn_mtr_id:%u, "
+					"apn_mtr_obj:0x%"PRIx64"\n",
+					ue->dl_apn_mtr_idx,
+					(uint64_t)&ue->dl_apn_mtr_obj);
+		}
+
+		current_time = rte_rdtsc();
+		if (m->cir_period == 0) {
+			RTE_LOG(DEBUG, DP, "APN: Either MTR not found or"
+				" MTR not configured!!!\n");
+			continue;
+		}
+		action = app_pkt_handle(m, pkt[i], current_time);
+		if ((action == RED)
+			|| (action == YELLOW)
+			|| (action == DROP)) {
+			RESET_BIT(*pkts_mask, i);
+			*mtr_drops += 1;
+		}
 	}
 	return 0;
 }

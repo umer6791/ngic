@@ -54,6 +54,7 @@ FILE *cdr_file;
 FILE *cdr_file_stream;
 char *cdr_file_stream_ptr;
 size_t cdr_file_stream_sizeloc;
+FILE *mtr_file;
 
 uint64_t cdr_count;
 
@@ -146,6 +147,22 @@ dl_byptes_cb(struct dp_session_info *session,
 		struct dp_pcc_rules *pcc_rule,
 		struct adc_rules *adc_rule) {
 	return vol->dl_cdr.bytes;
+}
+
+static uint64_t
+dl_drop_pkt_cnt_cb(struct dp_session_info *session,
+		struct chrg_data_vol *vol,
+		struct dp_pcc_rules *pcc_rule,
+		struct adc_rules *adc_rule) {
+	return vol->dl_drop.pkt_count;
+}
+
+static uint64_t
+dl_drop_bytes_cb(struct dp_session_info *session,
+		struct chrg_data_vol *vol,
+		struct dp_pcc_rules *pcc_rule,
+		struct adc_rules *adc_rule) {
+	return vol->dl_drop.bytes;
 }
 
 static uint64_t
@@ -327,6 +344,8 @@ struct cdr_field_t cdr_fields[NUM_CDR_FIELDS] = {
 		DEFINE_CB_STR("ue_ip", ue_ip_cb),
 		DEFINE_CB_64("dl_pkt_cnt", dl_pkt_cnt_cb),
 		DEFINE_CB_64("dl_bytes", dl_byptes_cb),
+		DEFINE_CB_64("dl_drop_pkt_cnt", dl_drop_pkt_cnt_cb),
+		DEFINE_CB_64("dl_drop_bytes", dl_drop_bytes_cb),
 		DEFINE_CB_64("ul_pkt_cnt", ul_pkt_cnt_cb),
 		DEFINE_CB_64("ul_bytes", ul_byptes_cb),
 		DEFINE_CB_32("rule_id", rule_id_cb),
@@ -525,12 +544,48 @@ cdr_close(void)
 	}
 }
 
+void mtr_init(void)
+{
+		char filename[30] = "./logs/mtr.csv";
+		DIR *cdr_dir = opendir("./logs");
+		if (cdr_dir)
+			closedir(cdr_dir);
+		else if (errno == ENOENT) {
+			errno = 0;
+			mkdir("./cdr", S_IRWXU);
+		}
+
+
+		printf("Logging MTR Records to %s\n", filename);
+
+		mtr_file = fopen(filename, "w");
+		if (!mtr_file)
+			rte_panic("CDR file %s failed to open for writing\n"
+					" - %s (%d)",
+					filename, strerror(errno), errno);
+
+		if (fprintf(mtr_file, "#%s,%s,%s,%s,%s\n",
+				"time",
+				"UE_addr",
+				"Type",
+				"ID",
+				"drop_pkts") < 0)
+			rte_panic("%s [%d] fprintf(cdr_file header failed -"
+				" %s (%d)\n",
+				__FILE__, __LINE__, strerror(errno), errno);
+		if (fflush(mtr_file))
+			rte_panic("%s [%d] fflush(cdr_file failed - %s (%d)\n",
+				__FILE__, __LINE__, strerror(errno), errno);
+}
+
 void
 cdr_init(void)
 {
 	create_sys_path(cdr_path);
 
 	create_new_cdr_file();
+
+	mtr_init();
 }
 
 void
@@ -547,4 +602,27 @@ export_session_adc_record(struct adc_rules *adc_rule,
 				struct dp_session_info *session)
 {
 	export_record(session, &charge_record->data_vol, NULL, adc_rule);
+}
+
+
+void export_mtr(struct dp_session_info *session,
+		char *name, uint32_t id, uint64_t drops)
+{
+	/* create time string */
+	char time_str[30];
+	time_t t = time(NULL);
+	struct tm *tmp = localtime(&t);
+	if (tmp == NULL)
+		return;
+	strftime(time_str, sizeof(time_str), "%y%m%d_%H%M%S", tmp);
+	fprintf(mtr_file, "%s,%s,%s,%d,%"PRIu64"\n",
+				time_str,
+				iptoa(session->ue_addr),
+				name,
+				id,
+				drops);
+
+	if (fflush(mtr_file))
+		rte_panic("%s [%d] fflush(cdr_file failed - %s (%d)\n",
+				__FILE__, __LINE__, strerror(errno), errno);
 }

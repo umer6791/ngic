@@ -70,7 +70,8 @@ static void adc_print_rule(const void *nodep, const VISIT which, const int depth
 		printf("Rule name: %s, Sponsor id: %s\n",
 				r->rule_name, r->sponsor_id);
 		printf("Meter profile index: %u, Gate_status: %s\n",
-				r->meter_profile_index, r->gate_status ? "Open" : "Close");
+				r->mtr_profile_index, r->gate_status ?
+				"Open" : "Close");
 		break;
 	default:
 		break;
@@ -198,7 +199,8 @@ dp_adc_entry_add(struct dp_id dp_id, struct adc_rules *adc_filter_entry)
 				IPV4_ADDR_HOST_FORMAT(ipv4));
 		dp_adc_filter_entry_add(dp_id, &msg_payload);
 
-		RTE_LOG(DEBUG, DP, "ADC_TBL ADD: rule_id:%d, prio:%x,domain_ip:"IPV4_ADDR "\n",
+		RTE_LOG(DEBUG, DP, "ADC_TBL ADD: rule_id:%d, prio:%x,domain_ip:"
+				IPV4_ADDR ",",
 				adc_filter_entry->rule_id, adc_filter_entry->precedence,
 				IPV4_ADDR_HOST_FORMAT(adc_filter_entry->u.domain_ip.u.ipv4_addr));
 	} else if (adc_filter_entry->sel_type == DOMAIN_IP_ADDR_PREFIX) {
@@ -215,7 +217,8 @@ dp_adc_entry_add(struct dp_id dp_id, struct adc_rules *adc_filter_entry)
 				IPV4_ADDR_HOST_FORMAT(ipv4), prefix);
 		dp_adc_filter_entry_add(dp_id, &msg_payload);
 
-		RTE_LOG(DEBUG, DP, "ADC_TBL ADD: rule_id:%d, prio:%x,domain_ip:"IPV4_ADDR "\n",
+		RTE_LOG(DEBUG, DP, "ADC_TBL ADD: rule_id:%d, prio:%x,domain_ip:"
+				IPV4_ADDR ",",
 				adc_filter_entry->rule_id, adc_filter_entry->precedence,
 				IPV4_ADDR_HOST_FORMAT(adc_filter_entry->u.domain_prefix.ip_addr.u.ipv4_addr));
 	} else if (adc_filter_entry->sel_type == DOMAIN_NAME) {
@@ -224,11 +227,14 @@ dp_adc_entry_add(struct dp_id dp_id, struct adc_rules *adc_filter_entry)
 		ret = epc_sponsdn_dn_add_single(adc_filter_entry->u.domain_name, adc_filter_entry->rule_id);
 		if (ret)
 			RTE_LOG(DEBUG, DP, "failed to add DN error code %d\n", ret);
-		RTE_LOG(DEBUG, DP, "Spons DN ADD: rule_id:%d, prio:%x,domain_name:%s\n",
+		RTE_LOG(DEBUG, DP, "Spons DN ADD: rule_id:%d, prio:%x,"
+				"domain_name:%s",
 				adc_filter_entry->rule_id, adc_filter_entry->precedence,
 				adc_filter_entry->u.domain_name);
 	}
 
+	RTE_LOG(DEBUG, DP, "gate_status:%s\n",
+		(adc_filter_entry->gate_status == OPEN)?"OPEN":"CLOSED");
 	return 0;
 }
 
@@ -298,6 +304,8 @@ adc_rule_info_get(uint32_t *rid, uint32_t n, uint64_t *pkts_mask, void **adc_inf
  *	ADC information.
  * @param  n
  *	num. of rule ids.
+ * @param  adc_pkts_mask
+ *     set the adc pkt mask only if adc gate is open.
  * @param  pkts_mask
  *	bit mask to process the pkts, reset bit to free the pkt.
  *

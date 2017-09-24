@@ -56,7 +56,6 @@ int construct_ether_hdr(struct rte_mbuf *m, uint8_t portid)
 {
 	struct ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, void *);
 	struct ipv4_hdr *ipv4_hdr = (struct ipv4_hdr *)&eth_hdr[1];
-	struct arp_entry_data *ret_arp_data = NULL;
 	struct pipeline_arp_icmp_arp_key_ipv4 tmp_arp_key = {
 		.ip = ipv4_hdr->dst_addr,
 		.port_id = portid,
@@ -85,6 +84,7 @@ int construct_ether_hdr(struct rte_mbuf *m, uint8_t portid)
 
 	ether_addr_copy(&hw_addr, &eth_hdr->d_addr);
 #else				/* !SKIP_ARP_LOOKUP */
+	struct arp_entry_data *ret_arp_data = NULL;
 
 	if (ARPICMP_DEBUG)
 		printf("arp_icmp_get_dest_mac_address search ip 0x%x\n",

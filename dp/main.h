@@ -31,6 +31,7 @@
 #include "epc_packet_framework.h"
 #include "vepc_cp_dp_api.h"
 #include "dp_ipc_api.h"
+#include "meter.h"
 
 /**
  * dataplane rte logs.
@@ -141,6 +142,11 @@
  */
 #define DPN_ID			(12345)
 
+/**
+ * TRUE/FALSE
+ */
+enum boolean { FALSE, TRUE };
+
 #define DEFAULT_HASH_FUNC rte_jhash
 
 
@@ -231,6 +237,7 @@ struct dp_adc_rules {
 	struct tm rule_deactivation_time;	/* Rule Stop time*/
 	struct  redirect_info redirect_info;	/* Redirect  info*/
 	uint64_t drop_pkt_count;		/* No. of pkts dropped */
+	uint16_t mtr_profile_index;             /* index 0 to skip */
 } __attribute__((packed, aligned(RTE_CACHE_LINE_SIZE)));
 /**
  * Policy and Charging Control structure for DP
@@ -253,8 +260,8 @@ struct dp_pcc_rules {
 	char sponsor_id[MAX_LEN];		/**< Sponsor ID*/
 	struct  redirect_info redirect_info;	/**< Redirect  info*/
 	uint32_t precedence;			/**< Precedence*/
-	uint32_t mtr_profile_index;		/**< Meter profile index*/
 	uint64_t drop_pkt_count;		/**< Drop count*/
+	struct qos_info qos;			/**< QoS Parameters*/
 } __attribute__((packed, aligned(RTE_CACHE_LINE_SIZE)));
 
 
@@ -284,8 +291,6 @@ struct dp_session_info {
 									 * to this session like
 									 * Internet, Management, CIPA etc
 									 */
-	uint32_t apn_mtr_idx;			/**< APN meter profile index*/
-
 	struct ue_session_info *ue_info_ptr;	/**< Pointer to UE info of this bearer */
 
 	/** Session state for use with downlink data processing*/
@@ -300,12 +305,18 @@ struct dp_session_info {
 struct ue_session_info {
 	struct ip_addr ue_addr;			/**< UE ip address*/
 	uint32_t bearer_count;			/**< Num. of bearers configured*/
-	struct rte_meter_srtcm apn_mtr_obj;			/**< APN meter object pointer*/
+	struct rte_meter_srtcm ul_apn_mtr_obj;
+	/**< UL APN meter object pointer*/
+	struct rte_meter_srtcm dl_apn_mtr_obj;
+	/**< DL APN meter object pointer*/
 
 	/* rating groups CDRs*/
 	struct rating_group_index_map rg_idx_map[MAX_RATING_GRP]; /**< Rating group index*/
 	struct ipcan_dp_bearer_cdr rating_grp[MAX_RATING_GRP];	/**< rating groups CDRs*/
-	uint64_t apn_mtr_drops;								/**< drop count due to apn metering*/
+	uint32_t ul_apn_mtr_idx;	/**< UL APN meter profile index*/
+	uint32_t dl_apn_mtr_idx;	/**< DL APN meter profile index*/
+	uint64_t ul_apn_mtr_drops;	/**< drop count due to ul apn metering*/
+	uint64_t dl_apn_mtr_drops;	/**< drop count due to dl apn metering*/
 
 	/* ADC rules related params*/
 	uint32_t num_adc_rules;					/**< No. of ADC rule*/
@@ -327,8 +338,9 @@ struct dp_sdf_per_bearer_info {
  * per ADC, UE information structure
  */
 struct dp_adc_ue_info {
-	struct dp_adc_rules adc_info;						/**< ADC info of this bearer */
-	struct ipcan_dp_bearer_cdr adc_cdr;				/**< per ADC bearer CDR*/
+	struct dp_adc_rules adc_info;		/**< ADC info of this bearer */
+	struct ipcan_dp_bearer_cdr adc_cdr;	/**< per ADC bearer CDR*/
+	struct rte_meter_srtcm mtr_obj;	/**< meter object for this SDF flow */
 } __attribute__((packed, aligned(RTE_CACHE_LINE_SIZE)));
 
 #ifdef INSTMNT
@@ -639,11 +651,60 @@ adc_rule_info_get(uint32_t *rid, uint32_t n, uint64_t *pkts_mask, void **adc_inf
  *	pointer to struct dp_sdf_per_bearer_info.
  * @param mtr_id
  *	meter profile index to be returned
+ * @param mtr_drops
+ *  pointer to stat to update drops due to metering.
  * @param n
  *	number of pkts.
  */
 void
-get_sdf_mtr_id(void **sess_info, void **mtr_id, uint32_t n);
+get_sdf_mtr_id(void **sess_info, void **mtr_id,
+			uint64_t **mtr_drops, uint32_t n);
+
+/**
+ * Process APN metering based on meter index.
+ *
+ * @param sdf_info
+ *     sdf info ptr.
+ * @param adc_ue_info
+ *     adc ue info ptr.
+ * @param pkt
+ *     mbuf pointer
+ * @param n
+ *     num. of pkts.
+ * @param pkts_mask
+ *     bit mask to process the pkts,
+ *     reset bit to free the pkt.
+ *
+ * @return
+ *     - 0 on success
+ *     - -1 on failure
+ */
+int
+sdf_mtr_process_pkt(struct dp_sdf_per_bearer_info **sdf_info,
+			void **adc_ue_info, uint64_t *adc_pkts_mask,
+			struct rte_mbuf **pkt, uint32_t n, uint64_t *pkts_mask);
+/**
+ * Process APN metering based on meter index.
+ *
+ * @param sdf_info
+ *     sdf info ptr.
+ * @param flow
+ *     uplink or downlink.
+ * @param pkt
+ *     mbuf pointer
+ * @param n
+ *     num. of pkts.
+ * @param pkts_mask
+ *     bit mask to process the pkts,
+ *     reset bit to free the pkt.
+ *
+ * @return
+ *     - 0 on success
+ *     - -1 on failure
+ */
+int
+apn_mtr_process_pkt(struct dp_sdf_per_bearer_info **sdf_info, uint32_t flow,
+			struct rte_mbuf **pkt, uint32_t n, uint64_t *pkts_mask);
 
 /**
  * Update CDR records per adc per ue.
@@ -745,11 +806,16 @@ update_rating_grp_cdr(void **sess_info, uint32_t **rgrp,
  *	pointer to struct dp_sdf_per_bearer_info.
  * @param mtr_id
  *	meter profile index to be returned
+ * @param mtr_drops
+ *  pointer to stat to update drops due to metering.
  * @param n
  *	number of pkts.
+ * @param flow
+ *  UL_FLOW or DL_FLOW
  */
 void
-get_apn_mtr_id(void **sess_info, void **mtr_id, uint32_t n);
+get_apn_mtr_id(void **sess_info, void **mtr_id,
+		uint64_t **mtr_drops, uint32_t n, uint32_t flow);
 
 /**
  * Function to process the ADC lookup with key of 32 bits.

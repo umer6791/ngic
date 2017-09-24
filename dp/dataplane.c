@@ -490,57 +490,6 @@ update_rating_grp_cdr(void **sess_info, uint32_t **rgrp,
 	}	/* for (i = 0; i < n; i++)*/
 }
 
-#ifdef SDF_MTR
-void
-get_sdf_mtr_id(void **sess_info, void **mtr_id,
-					uint64_t **mtr_drops, uint32_t n)
-{
-	uint32_t i;
-	struct dp_sdf_per_bearer_info *psdf;
-
-	for (i = 0; i < n; i++) {
-		if (!ISSET_BIT(*pkts_mask, i))
-			continue;
-		psdf = (struct dp_sdf_per_bearer_info *)sess_info[i];
-		if (psdf == NULL) {
-			mtr_id[i] = NULL;
-			continue;
-		}
-		mtr_id[i] = &psdf->sdf_mtr_obj;
-		mtr_drops[i] = &psdf->sdf_mtr_drops;
-		RTE_LOG(DEBUG, DP, "SDF MTR LKUP: mtr_obj:0x%"PRIx64"\n",
-				(uint64_t)&psdf->sdf_mtr_obj);
-	}
-}
-#endif /* SDF_MTR */
-#ifdef APN_MTR
-void
-get_apn_mtr_id(void **sess_info, void **mtr_id,
-					uint64_t **mtr_drops, uint32_t n)
-{
-	uint32_t i;
-	struct dp_session_info *si;
-	struct dp_sdf_per_bearer_info *psdf;
-	struct ue_session_info *ue;
-
-	for (i = 0; i < n; i++) {
-		if (!ISSET_BIT(*pkts_mask, i))
-			continue;
-		psdf = (struct dp_sdf_per_bearer_info *)sess_info[i];
-		if (psdf == NULL) {
-			mtr_id[i] = NULL;
-			continue;
-		}
-		si = psdf->bear_sess_info;
-		ue = si->ue_info_ptr;
-		mtr_id[i] = &ue->apn_mtr_obj;
-		mtr_drops[i] = &ue->apn_mtr_drops;
-		RTE_LOG(DEBUG, DP, "BEAR_SESS MTR LKUP: apn_mtr_id:%u, "
-				"apn_mtr_obj:0x%"PRIx64"\n",
-				si->apn_mtr_idx, (uint64_t)mtr_id[i]);
-	}
-}
-#endif /* APN_MTR */
 void
 adc_hash_lookup(struct rte_mbuf **pkts, uint32_t n, uint32_t *rid, uint8_t flow)
 {
