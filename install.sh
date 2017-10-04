@@ -15,6 +15,9 @@
 # limitations under the License.
 
 cd $(dirname ${BASH_SOURCE[0]})
+SERVICE=3
+SERVICE_NAME="Collocated CP and DP"
+source ./services.cfg
 export NGIC_DIR=$PWD
 echo "------------------------------------------------------------------------------"
 echo " NGIC_DIR exported as $NGIC_DIR"
@@ -66,7 +69,11 @@ step_1()
         CONFIG_NUM=1
         TEXT[1]="Check OS and network connection"
         FUNC[1]="setup_env"
+        TEXT[2]="Configured Service - $SERVICE_NAME"
+        FUNC[2]="configure_services"
+
 }
+
 setup_env()
 {
 	# a. Check for OS dependencies
@@ -96,23 +103,24 @@ setup_env()
 
 step_2()
 {
-        TITLE="Download and Install"
-        CONFIG_NUM=1
-        TEXT[1]="Agree to download"
-        FUNC[1]="get_agreement_download"
+	TITLE="Download and Install"
+	CONFIG_NUM=1
+	TEXT[1]="Agree to download"
+	FUNC[1]="get_agreement_download"
 	TEXT[2]="Download packages"
 	FUNC[2]="install_libs"
 	TEXT[3]="Download DPDK submodule"
 	FUNC[3]="download_dpdk_submodule"
-	TEXT[4]="Download DPDK zip (optional, use it when option 4 fails)"
+	TEXT[4]="Download DPDK zip (optional, use it when option 5 fails)"
 	FUNC[4]="download_dpdk_zip"
 	TEXT[5]="Install DPDK"
 	FUNC[5]="install_dpdk"
-	TEXT[6]="Setup hugepages"
-	FUNC[6]="setup_hugepages"
-	TEXT[7]="Download hyperscan"
-	FUNC[7]="download_hyperscan"
+	if [ $SERVICE -ne 1 ] ; then
+	TEXT[6]="Download hyperscan"
+	FUNC[6]="download_hyperscan"
+	fi
 }
+
 get_agreement_download()
 {
 	echo
@@ -145,7 +153,7 @@ install_libs()
 	echo "Install libs needed to build and run NGIC..."
 	file_name=".agree"
 	if [ ! -e "$file_name" ]; then
-		echo "Please choose option '2.Agree to download' first"
+		echo "Please choose option '3. Agree to download' first"
 		return
 	fi
 	file_name=".download"
@@ -164,7 +172,7 @@ download_dpdk_submodule()
 	echo "Download DPDK submodule"
 	file_name=".agree"
 	if [ ! -e "$file_name" ]; then
-		echo "Please choose option '2.Agree to download' first"
+		echo "Please choose option '3. Agree to download' first"
 		return
 	fi
 	git submodule -q update --init --recursive
@@ -178,7 +186,7 @@ download_dpdk_zip()
 	echo "Download DPDK zip"
 	file_name=".agree"
 	if [ ! -e "$file_name" ]; then
-		echo "Please choose option '2.Agree to download' first"
+		echo "Please choose option '3. Agree to download' first"
 		return
 	fi
 	wget ${DPDK_DOWNLOAD}
@@ -211,16 +219,121 @@ install_dpdk()
 	popd
 }
 
+configure_services()
+{
+	clear
+	echo "------------------"
+	echo "Service Selection."
+	echo "------------------"
+	echo "1. Configure CP only"
+	echo "2. Configure DP only"
+	echo "3. Configure Collocated CP and DP "
+	echo ""
+	while true;do
+		read -p "Please choose option : " opt
+		case $opt in
+			[1])	echo "Control Plane Settings"
+				SERVICE=1
+				SERVICE_NAME="CP"
+				memory=`cat config/cp_config.cfg  | grep MEMORY | cut -d = -f 2 | tr -d ' '`
+				setup_memory
+				setup_hugepages
+				return;;
+
+			[2])	echo "Data Plane Setting"
+				SERVICE=2
+				SERVICE_NAME="DP"
+				memory=`cat config/dp_config.cfg  | grep MEMORY | cut -d = -f 2 | tr -d ' '`
+				setup_memory
+				setup_hugepages
+				return;;
+
+			[3])	echo "Control and Data Plane Setting"
+				SERVICE=3
+				SERVICE_NAME="Collocated CP and DP"
+				setup_collocated_memory
+				setup_memory
+				setup_hugepages
+				return;;
+
+			*)	echo
+				echo "Please select appropriate option."
+				echo ;;
+		esac
+
+	done
+}
+
+
+setup_memory()
+{
+	echo
+	echo "Current $SERVICE_NAME memory size : $memory (MB)"
+		while true; do
+			read -p "Do you want change the $SERVICE_NAME memory size(y/n)? " yn
+			case $yn in
+				[Yy]* )	if [ $SERVICE == 1 ] || [ $SERVICE == 3 ] ; then
+							set_size CP
+							sed -i '/^MEMORY=/s/=.*/='$memory'/' config/cp_config.cfg
+						fi
+
+						if [ $SERVICE == 2 ] || [ $SERVICE == 3 ] ; then
+							set_size DP
+							sed -i '/^MEMORY=/s/=.*/='$memory'/' config/dp_config.cfg
+						fi
+
+						if [ $SERVICE == 3 ] ; then
+							setup_collocated_memory
+						echo "Total memory size allocated for Collocated CP and DP : $memory "
+                                fi
+						return;;
+
+				[Nn]* ) return;;
+
+				* ) "Please answer yes or no.";;
+			esac
+		done
+
+}
+
+set_size()
+{
+	while true;do
+	read -p "Enter $1 memory size[MB] : " memory
+		if [[ ! ${memory} =~ ^[0-9]+$ ]] ; then
+			echo
+			echo "Please enter valid input."
+			echo
+		else
+			return
+		fi
+	done
+}
+
+setup_collocated_memory()
+{
+
+	dp_memory=`cat config/dp_config.cfg  | grep MEMORY | cut -d = -f 2 | tr -d ' '`
+	cp_memory=`cat config/cp_config.cfg  | grep MEMORY | cut -d = -f 2 | tr -d ' '`
+	memory=$(($cp_memory + $dp_memory))
+}
+
 setup_hugepages()
 {
-	#----
 	Pages=16
+	echo "SERVICE_NAME=\"$SERVICE_NAME\" " > ./services.cfg
+	echo "SERVICE=$SERVICE" >> ./services.cfg
+
 	if [[ "$HUGEPGSZ" = "2048kB" ]] ; then
-		Pages=8192
+		#---- Calculate number of pages base on configure MEMORY and page size
+		Hugepgsz=`echo $HUGEPGSZ | tr -d 'kB'`
+		Pages=$((($memory*1024) / $Hugepgsz))
+
+		echo "MEMORY (MB) : " $memory
+		echo "Number of pages : " $Pages
 	fi
-	if [ ! "`grep nr_hugepages /etc/sysctl.conf`" ] ; then
-		echo "vm.nr_hugepages=$Pages" | sudo tee /etc/sysctl.conf
-	fi
+		echo "vm.nr_hugepages=$Pages"
+		sudo sed -i '/^vm.nr_hugepages=/s/=.*/='$Pages'/' /etc/sysctl.conf
 	sudo sysctl -p
 
 	sudo service procps start
@@ -273,22 +386,21 @@ step_3()
 }
 build_ngic()
 {
-	source setenv.sh
 	pushd $NGIC_DIR
-	make clean
-	make || { echo -e "\nNG-CORE: Make failed\n"; }
+	source setenv.sh
+	if [ $SERVICE == 2 ] || [ $SERVICE == 3 ] ; then
+		make clean
+		echo "Building Libs..."
+		make build-lib || { echo -e "\nNG-CORE: Make lib failed\n"; }
+		echo "Building DP..."
+		make build-dp || { echo -e "\nDP: Make failed\n"; }
+	fi
+	if [ $SERVICE == 1 ] || [ $SERVICE == 3 ] ; then
+		echo "Building CP..."
+		make clean-cp
+		make build-cp || { echo -e "\nCP: Make failed\n"; }
+	fi
 	popd
-#	export RTE_SDK=$DPDK_DIR
-#	export RTE_TARGET=x86_64-native-linuxapp-gcc
-#	pushd dp
-#	make clean
-#	make || { echo -e "\nDP: Make failed\n"; }
-#	popd
-#
-#	pushd cp
-#	make clean
-#	make || { echo -e "\nCP: Make failed\n"; }
-#	popd
 }
 
 SETUP_PROXY="setup_http_proxy"
