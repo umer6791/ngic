@@ -14,6 +14,7 @@
 # limitations under the License.
 
 source ../config/dp_config.cfg
+source ../config/cdr.cfg
 
 APP_PATH="./build"
 APP="ngic_dataplane"
@@ -39,6 +40,13 @@ if [ -n "${SGI_GW_IP}" ]; then
 	fi
 fi
 
+if [ -n "${CDR_PATH}" ]; then
+	ARGS="$ARGS --cdr_path $CDR_PATH"
+fi
+
+if [ -n "${MASTER_CDR}" ]; then
+	ARGS="$ARGS --master_cdr $MASTER_CDR"
+fi
 
 echo $ARGS | sed -e $'s/--/\\\n\\t--/g'
 

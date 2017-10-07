@@ -43,6 +43,9 @@
 #include "nb_listener.h"
 #endif
 #endif
+#ifndef CP_BUILD
+#include "cdr.h"
+#endif
 
 /*
  * UDP Setup
@@ -488,6 +491,7 @@ void iface_module_constructor(void)
 #endif	/* !CP_BUILD*/
 }
 
+
 void sig_handler(int signo)
 {
 	if (signo == SIGINT) {
@@ -498,6 +502,10 @@ void sig_handler(int signo)
 #else
 		zmq_status_goodbye();
 #endif
+#endif
+
+#ifndef CP_BUILD
+		cdr_close();
 #endif
 		rte_exit(EXIT_SUCCESS, "received SIGINT\n");
 	}
