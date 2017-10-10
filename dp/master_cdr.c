@@ -42,6 +42,8 @@ struct master_field_t {
 	void (*print_value)(FILE *file, struct master_file_entry_t *entry);
 };
 
+static char *master_cdr_filename;
+
 static void
 filename_master_cb(FILE *file, struct master_file_entry_t *entry)
 {
@@ -91,8 +93,6 @@ struct master_field_t master_fields[] = {
 		{"num_entries", num_entries_cb},
 		{"MD5", md5_cb}
 };
-
-char *master_cdr_filename = DEFAULT_MASTER_FILENAME;
 
 static int
 calc_md5(FILE *file, off_t filesize, struct master_file_entry_t *master_entry)
@@ -337,7 +337,16 @@ finalize_cur_cdrs(const char *cdr_path)
 
 
 void
-set_master_cdr_file(const char *master_cdr_file)
+set_master_cdr_file(const char *filename)
 {
-	master_cdr_filename = strdup(master_cdr_file);
+	if (filename == NULL)
+		filename = DEFAULT_MASTER_FILENAME;
+	master_cdr_filename = strdup(filename);
+}
+
+void
+free_master_cdr(void)
+{
+	if (master_cdr_filename)
+		free(master_cdr_filename);
 }
