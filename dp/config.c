@@ -221,6 +221,7 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 	int i;
 	struct ether_addr mac_addr;
 	uint64_t used_coremask = 0;
+	const char *master_cdr_file = NULL;
 
 	static struct option spgw_opts[] = {
 		{"s1u_ip", required_argument, 0, 'i'},
@@ -424,7 +425,7 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 			set_cdr_path(optarg);
 			break;
 		case 'e':
-			set_master_cdr_file(optarg);
+			master_cdr_file = optarg;
 			break;
 		default:
 			dp_print_usage();
@@ -432,6 +433,7 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 		}		/* end switch (opt) */
 	}			/* end while() */
 
+	set_master_cdr_file(master_cdr_file);
 	set_unused_lcore(&epc_app.core_rx[S1U_PORT_ID], &used_coremask);
 	epc_app.core_tx[S1U_PORT_ID] = epc_app.core_rx[S1U_PORT_ID];
 	set_unused_lcore(&epc_app.core_rx[SGI_PORT_ID], &used_coremask);

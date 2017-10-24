@@ -38,4 +38,10 @@ set_master_cdr_file(const char *master_cdr_file);
 void
 finalize_cur_cdrs(const char *cdr_path);
 
+/**
+ * @brief frees all memory allocated by master_cdr.c
+ */
+void
+free_master_cdr(void);
+
 #endif /* _MASTER_H */

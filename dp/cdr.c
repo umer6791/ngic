@@ -542,6 +542,8 @@ cdr_close(void)
 		fclose(old_cdr_file);
 		finalize_cur_cdrs(cdr_path);
 	}
+
+	free_master_cdr();
 }
 
 void mtr_init(void)
