@@ -29,6 +29,7 @@
 #include <rte_cfgfile.h>
 #include <rte_byteorder.h>
 
+#include "nb.h"
 #include "interface.h"
 #include "main.h"
 #include "util.h"
@@ -307,8 +308,9 @@ session_create(struct dp_id dp_id,
 	struct msgbuf msg_payload;
 	build_dp_msg(MSG_SESS_CRE, dp_id, (void *)&entry, &msg_payload);
 #ifdef SDN_ODL_BUILD
-	return s11sdnODLprocess(
-			CREATE_SESSION,
+	return send_nb_create_modify(
+			JSON_OBJ_OP_TYPE_CREATE,
+			JSON_OBJ_INSTR_3GPP_MOB_CREATE,
 			entry.sess_id,
 			htonl(entry.ue_addr.u.ipv4_addr),
 			htonl(entry.dl_s1_info.enb_addr.u.ipv4_addr),
@@ -333,9 +335,9 @@ session_modify(struct dp_id dp_id,
 	struct msgbuf msg_payload;
 	build_dp_msg(MSG_SESS_MOD, dp_id, (void *)&entry, &msg_payload);
 #ifdef SDN_ODL_BUILD
-	enum s11_msgtype s11_mtyp = MODIFY_BEARER;
-	return s11sdnODLprocess(
-			s11_mtyp,
+	return send_nb_create_modify(
+			JSON_OBJ_OP_TYPE_UPDATE,
+			JSON_OBJ_INSTR_3GPP_MOB_MODIFY,
 			entry.sess_id,
 			htonl(entry.ue_addr.u.ipv4_addr),
 			htonl(entry.dl_s1_info.enb_addr.u.ipv4_addr),
@@ -360,17 +362,7 @@ session_delete(struct dp_id dp_id,
 	struct msgbuf msg_payload;
 	build_dp_msg(MSG_SESS_DEL, dp_id, (void *)&entry, &msg_payload);
 #ifdef SDN_ODL_BUILD
-	enum s11_msgtype s11_mtyp = DELETE_SESSION;
-	return s11sdnODLprocess(
-			s11_mtyp,
-			entry.sess_id,
-			htonl(entry.ue_addr.u.ipv4_addr),
-			htonl(entry.dl_s1_info.enb_addr.u.ipv4_addr),
-			htonl(entry.ul_s1_info.sgw_addr.u.ipv4_addr),
-			htonl(entry.dl_s1_info.enb_teid),
-			htonl(entry.ul_s1_info.sgw_teid),
-			htonl(entry.ue_addr.u.ipv4_addr),
-			UE_BEAR_ID(entry.sess_id));
+	return send_nb_delete(entry.sess_id);
 #else
 	return send_dp_msg(dp_id, &msg_payload);
 #endif		/* SDN_ODL_BUILD */

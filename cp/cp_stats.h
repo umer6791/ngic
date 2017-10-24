@@ -21,9 +21,6 @@
 
 #include <rte_common.h>
 
-#ifdef SDN_ODL_BUILD
-#include "sdnODLnbcurl.h"
-#endif
 /**
  * @file
  *
@@ -46,15 +43,15 @@ struct cp_stats_t {
 	uint64_t ddn;
 	uint64_t ddn_ack;
 	uint64_t echo;
-#ifdef SDN_ODL_BUILD
-	uint64_t nb_out[NUM_CURL_POST_PTHREADS];
-	uint64_t nb_in;
-#endif
-
 	uint64_t rx;
 	uint64_t tx;
 	uint64_t rx_last;
 	uint64_t tx_last;
+#ifdef SDN_ODL_BUILD
+	uint64_t nb_sent;
+	uint64_t nb_ok;
+	uint64_t nb_cnr;
+#endif
 };
 
 extern struct cp_stats_t cp_stats;

@@ -23,7 +23,7 @@
 #include <rte_debug.h>
 
 #include "zmqsub.h"
-#include "sdnODLnbcurl.h"
+#include "zmqpub.h"
 
 static void *zmqsub_sockctxt;
 static void *zmqsub_socket;
@@ -43,6 +43,7 @@ enum {
 
 /** For use when dpn_lifecycle_state = ASSIGN_TOPIC_WAIT */
 static time_t assign_topic_time;
+
 #define ASSIGN_TOPIC_TIMEOUT 10
 
 #if ZMQSUB_DEBUG
@@ -240,7 +241,8 @@ uint8_t get_network_node_var_length(uint8_t *node_id_len_ptr)
 			*network_id_len_ptr + sizeof(*network_id_len_ptr);
 }
 
-int do_zmq_mbuf_send(struct zmqbuf *mbuf)
+int
+do_zmq_mbuf_send(struct zmqbuf *mbuf)
 {
 	size_t message_length = 0;
 

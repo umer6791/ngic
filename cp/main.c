@@ -1,4 +1,5 @@
 /*
+
  * Copyright (c) 2017 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -51,8 +52,10 @@
 #include "packet_filters.h"
 #include "dp_ipc_api.h"
 #include "cp.h"
-#include "nb_listener.h"
 #include "cp_stats.h"
+#ifdef SDN_ODL_BUILD
+#include "nb.h"
+#endif
 
 #define PCAP_TTL                     (64)
 #define PCAP_VIHL                    (0x0045)
@@ -67,13 +70,13 @@
 					S1U_SGW_IP_SET | IP_POOL_IP_SET | \
 					IP_POOL_MASK_SET | APN_NAME_SET)
 
-int socket_fd;
+int s11_fd = -1;
+int s11_pcap_fd = -1;
 
 pcap_dumper_t *pcap_dumper;
 pcap_t *pcap_reader;
 
 struct cp_params cp_params;
-
 
 
 /**
@@ -107,6 +110,7 @@ parse_arg(int argc, char **argv)
 	char errbuff[PCAP_ERRBUF_SIZE];
 	int args_set = 0;
 	int c = 0;
+	pcap_t *pcap;
 
 	const struct option long_options[] = {
 	  {"s11_sgw_ip",  required_argument, NULL, 's'},
@@ -158,8 +162,9 @@ parse_arg(int argc, char **argv)
 			pcap_reader = pcap_open_offline(optarg, errbuff);
 			break;
 		case 'y':
-			pcap_dumper = pcap_dump_open(
-				pcap_open_dead(DLT_EN10MB, UINT16_MAX), optarg);
+			pcap = pcap_open_dead(DLT_EN10MB, UINT16_MAX);
+			pcap_dumper = pcap_dump_open(pcap, optarg);
+			s11_pcap_fd = pcap_fileno(pcap);
 			break;
 		default:
 			rte_panic("Unknown argument - %s.", argv[optind]);
@@ -208,6 +213,43 @@ initialize_tables_on_dp(void)
 
 }
 
+
+/**
+ * @brief Initalizes S11 interface if in use
+ */
+static void
+init_s11(void)
+{
+	const in_port_t s11_port = htons(GTPC_UDP_PORT);
+	struct sockaddr_in sgw_s11_sockaddr_in;
+	int ret;
+
+	if (pcap_reader != NULL && pcap_dumper != NULL)
+		return;
+
+	s11_fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+	if (s11_fd < 0)
+		rte_panic("Socket call error : %s", strerror(errno));
+
+	bzero(sgw_s11_sockaddr_in.sin_zero,
+			sizeof(sgw_s11_sockaddr_in.sin_zero));
+	sgw_s11_sockaddr_in.sin_family = AF_INET;
+	sgw_s11_sockaddr_in.sin_port = s11_port;
+	sgw_s11_sockaddr_in.sin_addr = s11_sgw_ip;
+
+	ret = bind(s11_fd, (struct sockaddr *) &sgw_s11_sockaddr_in,
+			    sizeof(struct sockaddr_in));
+
+	if (ret < 0) {
+		rte_panic("Bind error for %s:%u - %s\n",
+			inet_ntoa(sgw_s11_sockaddr_in.sin_addr),
+			ntohs(sgw_s11_sockaddr_in.sin_port),
+			strerror(errno));
+	}
+}
+
+
 /**
  * @brief
  * Initializes Control Plane data structures, packet filters, and calls for the
@@ -216,32 +258,21 @@ initialize_tables_on_dp(void)
 static void
 init_cp(void)
 {
-
-#ifdef SDN_ODL_BUILD
-	init_nb_listener();
-#endif
+	init_s11();
 
 	iface_module_constructor();
 
 	if (signal(SIGINT, sig_handler) == SIG_ERR)
 		rte_exit(EXIT_FAILURE, "Error:can't catch SIGINT\n");
 
-#ifdef SDN_ODL_BUILD
-	if (dpn_id) {
-#ifdef CP_DP_TABLE_CONFIG
-		initialize_tables_on_dp();
-#endif
-		parse_adc_rules();
-	}
-	init_packet_filters();
-	sdnODLnbinit();
-#else
+
+#ifndef SDN_ODL_BUILD
 #ifdef CP_DP_TABLE_CONFIG
 	initialize_tables_on_dp();
 #endif
 	parse_adc_rules();
-	init_packet_filters();
 #endif
+	init_packet_filters();
 
 	create_ue_hash();
 }
@@ -252,7 +283,8 @@ init_cp(void)
  * Writes packet at @tx_buf of length @payload_length to pcap file specified
  * in @pcap_dumper (global)
  */
-static void dump_pcap(uint16_t payload_length, uint8_t *tx_buf)
+static void
+dump_pcap(uint16_t payload_length, uint8_t *tx_buf)
 {
 	static struct pcap_pkthdr pcap_tx_header;
 	gettimeofday(&pcap_tx_header.ts, NULL);
@@ -300,18 +332,9 @@ static void dump_pcap(uint16_t payload_length, uint8_t *tx_buf)
 	fflush(pcap_dump_file(pcap_dumper));
 }
 
-/**
- * Central working function of the control plane. Reads message from s11/pcap,
- * calls appropriate function to handle message, writes response
- * message (if any) to s11/pcap
- *
- * @param arg
- *   unused
- * @return
- *   Always returns 0 if reading from pcap, otherwise never returns
- */
-static int
-lcore_control_plane(__rte_unused void *arg)
+
+void
+control_plane(void)
 {
 	int ret;
 	uint8_t rx_buf[MAX_GTPV2C_UDP_LEN] = { 0 };
@@ -319,216 +342,176 @@ lcore_control_plane(__rte_unused void *arg)
 	gtpv2c_header *gtpv2c_rx = (gtpv2c_header *) rx_buf;
 	gtpv2c_header *gtpv2c_tx = (gtpv2c_header *) tx_buf;
 
-	socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
 	uint16_t payload_length;
-	const in_port_t s11_port = htons(GTPC_UDP_PORT);
 	struct sockaddr_in peer = { .sin_port = 0};
 	socklen_t peer_len = sizeof(peer);
-	struct sockaddr_in sgw_s11_sockaddr_in;
-	struct sockaddr_in mme_s11_sockaddr_in;
-	uint32_t bytes_rx, bytes_tx;
+
 	uint8_t delay = 0; /*TODO move this when more implemented?*/
-	if (socket_fd < 0)
-		rte_panic("Socket call error : %s", strerror(errno));
+	int bytes_rx, bytes_tx;
 
-	bzero(sgw_s11_sockaddr_in.sin_zero,
-			sizeof(sgw_s11_sockaddr_in.sin_zero));
-	sgw_s11_sockaddr_in.sin_family = AF_INET;
-	sgw_s11_sockaddr_in.sin_port = s11_port;
-	sgw_s11_sockaddr_in.sin_addr = s11_sgw_ip;
+	if (pcap_reader) {
+		static struct pcap_pkthdr *pcap_rx_header;
+		const u_char *t;
+		const u_char **tmp = &t;
+		ret = pcap_next_ex(pcap_reader, &pcap_rx_header, tmp);
+		if (ret < 0) {
+			printf("Finished reading from pcap file"
+					" - exiting\n");
+			exit(0);
+		}
+		bytes_rx = pcap_rx_header->caplen
+				- (sizeof(struct ether_hdr)
+				+ sizeof(struct ipv4_hdr)
+				+ sizeof(struct udp_hdr));
+		memcpy(gtpv2c_rx, *tmp
+				+ (sizeof(struct ether_hdr)
+				+ sizeof(struct ipv4_hdr)
+				+ sizeof(struct udp_hdr)), bytes_rx);
 
-	bzero(mme_s11_sockaddr_in.sin_zero,
-			sizeof(mme_s11_sockaddr_in.sin_zero));
-	mme_s11_sockaddr_in.sin_family = AF_INET;
-	mme_s11_sockaddr_in.sin_port = s11_port;
-	mme_s11_sockaddr_in.sin_addr = s11_mme_ip;
+	} else {
+		bytes_rx = recvfrom(s11_fd, rx_buf,
+				MAX_GTPV2C_UDP_LEN, MSG_DONTWAIT,
+				(struct sockaddr *) &peer, &peer_len);
+		if (bytes_rx < 0 && (errno == EAGAIN  || errno == EWOULDBLOCK))
+			return;
+	}
 
-	errno = 0;
+	if (bytes_rx == 0) {
+		fprintf(stderr, "recvfrom error for %s:%u - %s\n",
+				inet_ntoa(peer.sin_addr), peer.sin_port,
+				strerror(errno));
+		return;
+	} else if ((unsigned)bytes_rx != (ntohs(gtpv2c_rx->gtpc.length)
+			+ sizeof(gtpv2c_rx->gtpc))) {
+		ret = GTPV2C_CAUSE_INVALID_LENGTH;
+		/* According to 29.274 7.7.7, if message is request,
+		 * reply with cause = GTPV2C_CAUSE_INVALID_LENGTH
+		 *  should be sent - ignoring packet for now
+		 */
+		fprintf(stderr, "Received UDP Payload (%d bytes) with gtpv2c + "
+				"header (%u + %lu) = %lu bytes\n",
+				bytes_rx, ntohs(gtpv2c_rx->gtpc.length),
+				sizeof(gtpv2c_rx->gtpc),
+				ntohs(gtpv2c_rx->gtpc.length)
+				+ sizeof(gtpv2c_rx->gtpc));
+		return;
+	}
 
-	if (!pcap_reader && !pcap_reader) {
-		if (bind(socket_fd, (struct sockaddr *) &sgw_s11_sockaddr_in,
-		    sizeof(sgw_s11_sockaddr_in)) < 0) {
-			rte_panic("Bind error for %s:%u - %s\n",
-			    inet_ntoa(sgw_s11_sockaddr_in.sin_addr),
-			    ntohs(sgw_s11_sockaddr_in.sin_port),
-			    strerror(errno));
+	++cp_stats.rx;
+
+	if (!pcap_reader && (peer.sin_addr.s_addr != s11_mme_ip.s_addr
+			|| gtpv2c_rx->gtpc.version != GTP_VERSION_GTPV2C)) {
+		fprintf(stderr, "Discarding packet from %s:%u - "
+				"Expected S11_MME_IP = %s\n",
+				inet_ntoa(peer.sin_addr), ntohs(peer.sin_port),
+				inet_ntoa(s11_mme_ip));
+		return;
+	}
+
+	switch (gtpv2c_rx->gtpc.type) {
+	case GTP_CREATE_SESSION_REQ:
+		ret = process_create_session_request(
+				gtpv2c_rx, gtpv2c_tx);
+		break;
+	case GTP_DELETE_SESSION_REQ:
+		ret = process_delete_session_request(
+				gtpv2c_rx, gtpv2c_tx);
+		break;
+	case GTP_MODIFY_BEARER_REQ:
+		ret = process_modify_bearer_request(
+				gtpv2c_rx, gtpv2c_tx);
+		break;
+	case GTP_RELEASE_ACCESS_BEARERS_REQ:
+		ret = process_release_access_bearer_request(
+				gtpv2c_rx, gtpv2c_tx);
+		break;
+	case GTP_BEARER_RESOURCE_CMD:
+		ret = process_bearer_resource_command(
+				gtpv2c_rx, gtpv2c_tx);
+		break;
+	case GTP_ECHO_REQ:
+		ret = process_echo_request(gtpv2c_rx, gtpv2c_tx);
+		break;
+	case GTP_CREATE_BEARER_RSP:
+		ret = process_create_bearer_response(gtpv2c_rx);
+		break;
+	case GTP_DELETE_BEARER_RSP:
+		ret = process_delete_bearer_response(gtpv2c_rx);
+		break;
+	case GTP_DOWNLINK_DATA_NOTIFICATION_ACK:
+		ret = process_ddn_ack(gtpv2c_rx, &delay);
+		/* TODO something with delay if set */
+		break;
+	default:
+		fprintf(stderr, "Received unprocessed GTPv2c Message Type: "
+				"%s (%u 0x%x)... Discarding\n",
+				gtp_type_str(gtpv2c_rx->gtpc.type),
+				gtpv2c_rx->gtpc.type,
+				gtpv2c_rx->gtpc.type);
+		return;
+	}
+
+	if (ret) {
+		fprintf(stderr, "Error on message %s: (%d) %s\n",
+				gtp_type_str(gtpv2c_rx->gtpc.type), ret,
+				(ret < 0 ? strerror(-ret) : cause_str(ret)));
+		/* S11 error handling not implemented */
+		return;
+	}
+
+	switch (gtpv2c_rx->gtpc.type) {
+	case GTP_CREATE_BEARER_RSP:
+		cp_stats.create_bearer++;
+		return;
+	case GTP_DELETE_BEARER_RSP:
+		cp_stats.delete_bearer++;
+		return;
+	case GTP_DOWNLINK_DATA_NOTIFICATION_ACK:
+		cp_stats.ddn_ack++;
+		return;
+	}
+
+	payload_length = ntohs(gtpv2c_tx->gtpc.length)
+			+ sizeof(gtpv2c_tx->gtpc);
+
+	if (pcap_dumper) {
+		dump_pcap(payload_length, tx_buf);
+	} else {
+		bytes_tx = sendto(s11_fd, tx_buf, payload_length, 0,
+			(struct sockaddr *) &peer, peer_len);
+
+		if (bytes_tx != (int) payload_length) {
+			fprintf(stderr, "Transmitted Incomplete GTPv2c Message:"
+					"%u of %d tx bytes\n",
+					payload_length, bytes_tx);
 		}
 	}
 
-	while (1) {
+	++cp_stats.tx;
 
-		if (pcap_reader) {
-			static struct pcap_pkthdr *pcap_rx_header;
-			const u_char *t;
-			const u_char **tmp = &t;
-			ret = pcap_next_ex(pcap_reader, &pcap_rx_header, tmp);
-			if (ret < 0) {
-				printf("Finished reading from pcap file"
-						" - exiting\n");
-				exit(0);
-			}
-			bytes_rx = pcap_rx_header->caplen
-					- (sizeof(struct ether_hdr)
-					+ sizeof(struct ipv4_hdr)
-					+ sizeof(struct udp_hdr));
-			memcpy(gtpv2c_rx, *tmp
-					+ (sizeof(struct ether_hdr)
-					+ sizeof(struct ipv4_hdr)
-					+ sizeof(struct udp_hdr)), bytes_rx);
-
-		} else {
-			bytes_rx = recvfrom(socket_fd, rx_buf,
-					MAX_GTPV2C_UDP_LEN, 0,
-					(struct sockaddr *) &peer, &peer_len);
-		}
-
-		if (bytes_rx == 0) {
-			fprintf(stderr, "recvfrom error for %s:%u - %s\n",
-			    inet_ntoa(peer.sin_addr), peer.sin_port,
-			    strerror(errno));
-			continue;
-		} else if (bytes_rx
-		    != (ntohs(gtpv2c_rx->gtpc.length)
-				    + sizeof(gtpv2c_rx->gtpc))) {
-			ret = GTPV2C_CAUSE_INVALID_LENGTH;
-			/* According to 29.274 7.7.7, if message is request,
-			 * reply with cause = GTPV2C_CAUSE_INVALID_LENGTH
-			 *  should be sent - ignoring packet for now
-			 */
-			fprintf(stderr,
-			    "Recieved UDP Payload (%d bytes) with gtpv2c + "
-					"header (%u + %lu) = %lu bytes\n",
-			    bytes_rx, ntohs(gtpv2c_rx->gtpc.length),
-			    sizeof(gtpv2c_rx->gtpc),
-			    ntohs(gtpv2c_rx->gtpc.length)
-			    + sizeof(gtpv2c_rx->gtpc));
-			continue;
-		}
-
-		++cp_stats.rx;
-
-		if (!pcap_reader
-		    && (peer.sin_addr.s_addr != s11_mme_ip.s_addr
-			    || gtpv2c_rx->gtpc.version != GTP_VERSION_GTPV2C)) {
-			fprintf(stderr,
-			    "Discarding packet from %s:%u - "
-					"Expected S11_MME_IP = %s\n",
-			    inet_ntoa(peer.sin_addr), ntohs(peer.sin_port),
-			    inet_ntoa(s11_mme_ip));
-			continue;
-		}
-
-		switch (gtpv2c_rx->gtpc.type) {
-		case GTP_CREATE_SESSION_REQ:
-			ret = process_create_session_request(
-					gtpv2c_rx, gtpv2c_tx);
-			break;
-		case GTP_DELETE_SESSION_REQ:
-			ret = process_delete_session_request(
-					gtpv2c_rx, gtpv2c_tx);
-			break;
-		case GTP_MODIFY_BEARER_REQ:
-			ret = process_modify_bearer_request(
-					gtpv2c_rx, gtpv2c_tx);
-			break;
-		case GTP_RELEASE_ACCESS_BEARERS_REQ:
-			ret = process_release_access_bearer_request(
-					gtpv2c_rx, gtpv2c_tx);
-			break;
-		case GTP_BEARER_RESOURCE_CMD:
-			ret = process_bearer_resource_command(
-					gtpv2c_rx, gtpv2c_tx);
-			break;
-		case GTP_ECHO_REQ:
-			ret = process_echo_request(gtpv2c_rx, gtpv2c_tx);
-			break;
-		case GTP_CREATE_BEARER_RSP:
-			ret = process_create_bearer_response(gtpv2c_rx);
-			break;
-		case GTP_DELETE_BEARER_RSP:
-			ret = process_delete_bearer_response(gtpv2c_rx);
-			break;
-		case GTP_DOWNLINK_DATA_NOTIFICATION_ACK:
-			ret = process_ddn_ack(gtpv2c_rx, &delay);
-			/* TODO something with delay if set */
-			break;
-		default:
-			fprintf(stderr,
-			    "Received unprocessed GTPv2c Message Type: "
-			    "%s (%u 0x%x)... Discarding\n",
-			    gtp_type_str(gtpv2c_rx->gtpc.type),
-				    gtpv2c_rx->gtpc.type,
-				    gtpv2c_rx->gtpc.type);
-			continue;
-			break;
-		}
-
-		if (ret) {
-			fprintf(stderr, "Error on message %s: (%d) %s\n",
-			    gtp_type_str(gtpv2c_rx->gtpc.type), ret,
-			    (ret < 0 ? strerror(-ret) : cause_str(ret)));
-			/* S11 error handling not implemented */
-			continue;
-		}
-
-		switch (gtpv2c_rx->gtpc.type) {
-		case GTP_CREATE_BEARER_RSP:
-			cp_stats.create_bearer++;
-			continue;
-			break;
-		case GTP_DELETE_BEARER_RSP:
-			cp_stats.delete_bearer++;
-			continue;
-			break;
-		case GTP_DOWNLINK_DATA_NOTIFICATION_ACK:
-			cp_stats.ddn_ack++;
-			continue;
-			break;
-		}
-
-		payload_length = ntohs(gtpv2c_tx->gtpc.length)
-				+ sizeof(gtpv2c_tx->gtpc);
-
-		if (pcap_dumper) {
-			dump_pcap(payload_length, tx_buf);
-		} else {
-			bytes_tx = sendto(socket_fd, tx_buf, payload_length, 0,
-				(struct sockaddr *) &peer, peer_len);
-
-			if (bytes_tx != (int) payload_length) {
-				fprintf(stderr,
-				    "Transmitted Incomplete GTPv2c Message:"
-						"%u of %d tx bytes\n",
-				    payload_length, bytes_tx);
-			}
-		}
-
-		++cp_stats.tx;
-
-		switch (gtpv2c_rx->gtpc.type) {
-		case GTP_CREATE_SESSION_REQ:
-			cp_stats.create_session++;
-			break;
-		case GTP_DELETE_SESSION_REQ:
-			cp_stats.delete_session++;
-			break;
-		case GTP_MODIFY_BEARER_REQ:
-			cp_stats.modify_bearer++;
-			break;
-		case GTP_RELEASE_ACCESS_BEARERS_REQ:
-			cp_stats.rel_access_bearer++;
-			break;
-		case GTP_ECHO_REQ:
-			cp_stats.echo++;
-			break;
-		case GTP_BEARER_RESOURCE_CMD:
-			cp_stats.bearer_resource++;
-			break;
-		}
-
-		bzero(&tx_buf, sizeof(tx_buf));
+	switch (gtpv2c_rx->gtpc.type) {
+	case GTP_CREATE_SESSION_REQ:
+		cp_stats.create_session++;
+		break;
+	case GTP_DELETE_SESSION_REQ:
+		cp_stats.delete_session++;
+		break;
+	case GTP_MODIFY_BEARER_REQ:
+		cp_stats.modify_bearer++;
+		break;
+	case GTP_RELEASE_ACCESS_BEARERS_REQ:
+		cp_stats.rel_access_bearer++;
+		break;
+	case GTP_ECHO_REQ:
+		cp_stats.echo++;
+		break;
+	case GTP_BEARER_RESOURCE_CMD:
+		cp_stats.bearer_resource++;
+		break;
 	}
-	return 0;
+
+	bzero(&tx_buf, sizeof(tx_buf));
+
 }
 
 int
@@ -567,15 +550,14 @@ ddn_by_session_id(uint64_t session_id) {
 	if (pcap_dumper) {
 		dump_pcap(payload_length, tx_buf);
 	} else {
-		uint32_t bytes_tx = sendto(socket_fd, tx_buf, payload_length, 0,
+		uint32_t bytes_tx = sendto(s11_fd, tx_buf, payload_length, 0,
 		    (struct sockaddr *) &mme_s11_sockaddr_in,
 		    sizeof(mme_s11_sockaddr_in));
 
 		if (bytes_tx != (int) payload_length) {
-			fprintf(stderr,
-			    "Transmitted Incomplete GTPv2c Message:"
+			fprintf(stderr, "Transmitted Incomplete GTPv2c Message:"
 					"%u of %d tx bytes\n",
-			    payload_length, bytes_tx);
+					payload_length, bytes_tx);
 		}
 	}
 	ddn_sequence += 2;
@@ -600,8 +582,8 @@ cb_ddn(struct msgbuf *msg_payload)
 
 	if (ret) {
 		fprintf(stderr, "Error on DDN Handling %s: (%d) %s\n",
-			    gtp_type_str(ret), ret,
-			    (ret < 0 ? strerror(-ret) : cause_str(ret)));
+				gtp_type_str(ret), ret,
+				(ret < 0 ? strerror(-ret) : cause_str(ret)));
 	}
 	return ret;
 }
@@ -613,7 +595,7 @@ cb_ddn(struct msgbuf *msg_payload)
  * @return
  * never returns
  */
-int
+static int
 listener(__rte_unused void *arg)
 {
 	iface_init_ipc_node();
@@ -631,29 +613,19 @@ static void
 init_cp_params(void) {
 	unsigned last_lcore = rte_get_master_lcore();
 
-	cp_params.listener_core_id = rte_get_next_lcore(last_lcore, 1, 0);
+#ifndef SDN_ODL_BUILD
+	cp_params.nb_core_id = rte_get_next_lcore(last_lcore, 1, 0);
 
-	if (cp_params.listener_core_id == RTE_MAX_LCORE)
+	if (cp_params.nb_core_id == RTE_MAX_LCORE)
 		rte_panic("Insufficient cores in coremask to "
-				"spawn listener thread\n");
-
-	last_lcore = cp_params.listener_core_id;
-
-#ifdef SDN_ODL_BUILD
-	cp_params.sdn_lcore_id = rte_get_next_lcore(last_lcore, 1, 0);
-
-	if (cp_params.sdn_lcore_id == RTE_MAX_LCORE)
-		rte_panic("Insufficient cores in coremask to "
-				"spawn sdn thread\n");
-
-	last_lcore = cp_params.sdn_lcore_id;
+				"spawn nb thread\n");
+	last_lcore = cp_params.nb_core_id;
 #endif
 
 	cp_params.stats_core_id = rte_get_next_lcore(last_lcore, 1, 0);
 	if (cp_params.stats_core_id == RTE_MAX_LCORE)
 		fprintf(stderr, "Insufficient cores in coremask to "
 				"spawn stats thread\n");
-
 	last_lcore = cp_params.stats_core_id;
 }
 
@@ -667,7 +639,8 @@ init_cp_params(void) {
  * @return
  *   returns 0
  */
-int main(int argc, char **argv)
+int
+main(int argc, char **argv)
 {
 	int ret;
 	ret = rte_eal_init(argc, argv);
@@ -682,21 +655,20 @@ int main(int argc, char **argv)
 	init_cp_params();
 	init_cp();
 
-
-	if (cp_params.listener_core_id != RTE_MAX_LCORE)
-		rte_eal_remote_launch(listener, NULL,
-				cp_params.listener_core_id);
-
 	if (cp_params.stats_core_id != RTE_MAX_LCORE)
 		rte_eal_remote_launch(do_stats, NULL, cp_params.stats_core_id);
 
 #ifdef SDN_ODL_BUILD
-	rte_eal_remote_launch(do_sdnODLnbif, NULL, cp_params.sdn_lcore_id);
+	init_nb();
+	server();
+#else
+	if (cp_params.nb_core_id != RTE_MAX_LCORE)
+		rte_eal_remote_launch(listener, NULL, cp_params.nb_core_id);
+
+	while (1)
+		control_plane();
 #endif
-
-	lcore_control_plane(NULL);
-
-	rte_eal_mp_wait_lcore();
 
 	return 0;
 }
+

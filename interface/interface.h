@@ -27,9 +27,7 @@
 #include <rte_hash.h>
 
 #ifdef SDN_ODL_BUILD
-	#include "sdnODLnbcurl.h"
 	#include "zmqsub.h"
-	#include "zmqpub.h"
 #endif		/* SDN_ODL_BUILD  */
 
 #include "vepc_cp_dp_api.h"
@@ -44,8 +42,9 @@ char zmq_pub_ifconnect[128];
 
 extern struct in_addr fpc_ip;
 extern uint16_t fpc_port;
-extern struct in_addr cp_nb_server_ip;
-extern uint16_t cp_nb_server_port;
+extern uint16_t fpc_topology_port;
+extern struct in_addr cp_nb_ip;
+extern uint16_t cp_nb_port;
 #endif
 
 extern udp_sock_t my_sock;
@@ -131,18 +130,6 @@ int process_comm_msg(void *buf);
  */
 void iface_module_constructor(void);
 
-#ifdef SDN_ODL_BUILD
-/**
- * @brief Function to send mbuf over zmq.
- */
-int
-do_zmq_mbuf_send(struct zmqbuf *mbuf);
-/**
- * @brief Function to process mbuf over zmq.
- */
-int
-zmq_mbuf_process(struct zmqbuf *zmqmsgbuf_rx, int zmqmsglen);
-#endif
 /**
  * @brief Functino to handle signals.
  */

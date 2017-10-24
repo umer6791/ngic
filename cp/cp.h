@@ -28,10 +28,11 @@
  */
 struct cp_params {
 	unsigned stats_core_id;
-	unsigned listener_core_id;
-	unsigned sdn_lcore_id;
+	unsigned nb_core_id;
 };
 
+extern int s11_fd;
+extern int s11_pcap_fd;
 extern struct cp_params cp_params;
 
 /**
@@ -52,5 +53,12 @@ ddn_by_session_id(uint64_t session_id);
 void
 initialize_tables_on_dp(void);
 
+/**
+ * Central working function of the control plane. Reads message from s11/pcap,
+ * calls appropriate function to handle message, writes response
+ * message (if any) to s11/pcap
+ */
+void
+control_plane(void);
 
 #endif

@@ -27,7 +27,7 @@
 #include "ue.h"
 #include "util.h"
 #ifdef SDN_ODL_BUILD
-#include "sdnODLnbcurl.h"
+#include "nb.h"
 #endif
 
 const char *direction_str[] = {

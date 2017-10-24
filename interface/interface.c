@@ -39,8 +39,9 @@
 #include "gtpv2c_ie.h"
 #ifdef SDN_ODL_BUILD
 #include "zmqsub.h"
+#include "zmqpub.h"
 #ifdef CP_BUILD
-#include "nb_listener.h"
+#include "nb.h"
 #endif
 #endif
 #ifndef CP_BUILD
@@ -60,8 +61,10 @@ uint16_t cp_comm_port;
 #ifdef SDN_ODL_BUILD
 struct in_addr fpc_ip;
 uint16_t fpc_port;
-struct in_addr cp_nb_server_ip;
-uint16_t cp_nb_server_port;
+uint16_t fpc_topology_port;
+
+struct in_addr cp_nb_ip;
+uint16_t cp_nb_port;
 #endif
 
 
@@ -162,28 +165,6 @@ udp_init_cp_socket(void)
 }
 
 
-#ifdef SDN_ODL_BUILD
-static int
-sdnODL_init(void)
-{
-
-	return udp_init_cp_socket();
-}
-
-static int
-sdnODL_destroy(void)
-{
-	/*
-	 * sdnODL destroy
-	 */
-	sdnODLcleanup();
-
-	/* Here we wait for a couple seconds for a error response (if any) */
-	sleep(2);
-
-	return 0;
-}
-#endif		/* CP:SDN_ODL_BUILD */
 #endif		/* CP_BUILD */
 
 #ifndef CP_BUILD
@@ -423,9 +404,10 @@ static void read_interface_config(void)
 
 	SET_CONFIG_IP(fpc_ip, file, "0", file_entry);
 	SET_CONFIG_PORT(fpc_port, file, "0", file_entry);
+	SET_CONFIG_PORT(fpc_topology_port, file, "0", file_entry);
 
-	SET_CONFIG_IP(cp_nb_server_ip, file, "0", file_entry);
-	SET_CONFIG_PORT(cp_nb_server_port, file, "0", file_entry);
+	SET_CONFIG_IP(cp_nb_ip, file, "0", file_entry);
+	SET_CONFIG_PORT(cp_nb_port, file, "0", file_entry);
 
 	SET_CONFIG_IP(zmq_sub_ip, file, "0", file_entry);
 	SET_CONFIG_PORT(zmq_sub_port, file, "0", file_entry);
@@ -437,6 +419,7 @@ static void read_interface_config(void)
 		"%s://%s:%u", zmq_proto, inet_ntoa(zmq_sub_ip), zmq_sub_port);
 	snprintf(zmq_pub_ifconnect, sizeof(zmq_pub_ifconnect),
 		"%s://%s:%u", zmq_proto, inet_ntoa(zmq_pub_ip), zmq_pub_port);
+
 #endif
 }
 
@@ -455,10 +438,10 @@ void iface_module_constructor(void)
 	printf("IFACE: CP Initialization\n");
 #if defined SDN_ODL_BUILD
 	register_comm_msg_cb(COMM_SOCKET,
-				sdnODL_init,
+				udp_init_cp_socket,
 				udp_send_socket,
 				NULL,
-				sdnODL_destroy);
+				NULL);
 	set_comm_type(COMM_SOCKET);
 #else
 	register_comm_msg_cb(COMM_SOCKET,
@@ -497,8 +480,7 @@ void sig_handler(int signo)
 	if (signo == SIGINT) {
 #ifdef SDN_ODL_BUILD
 #ifdef CP_BUILD
-		clean_nb_listener_on_signal(signo);
-		comm_node[COMM_SOCKET].destroy();
+		close_nb();
 #else
 		zmq_status_goodbye();
 #endif
