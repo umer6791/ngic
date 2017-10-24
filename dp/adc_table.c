@@ -199,10 +199,12 @@ dp_adc_entry_add(struct dp_id dp_id, struct adc_rules *adc_filter_entry)
 				IPV4_ADDR_HOST_FORMAT(ipv4));
 		dp_adc_filter_entry_add(dp_id, &msg_payload);
 
-		RTE_LOG(DEBUG, DP, "ADC_TBL ADD: rule_id:%d, prio:%x,domain_ip:"
-				IPV4_ADDR ",",
-				adc_filter_entry->rule_id, adc_filter_entry->precedence,
-				IPV4_ADDR_HOST_FORMAT(adc_filter_entry->u.domain_ip.u.ipv4_addr));
+		RTE_LOG(INFO, DP, "ADC_TBL ADD: rule_id:%d, prio:%x,domain_ip:"\
+				IPV4_ADDR"\n", adc_filter_entry->rule_id,
+				adc_filter_entry->precedence,
+				IPV4_ADDR_HOST_FORMAT(\
+					adc_filter_entry->u.domain_ip.u.ipv4_addr));
+
 	} else if (adc_filter_entry->sel_type == DOMAIN_IP_ADDR_PREFIX) {
 		struct pkt_filter msg_payload;
 		uint32_t ipv4 = adc_filter_entry->u.domain_prefix.ip_addr.u.ipv4_addr;
@@ -217,18 +219,20 @@ dp_adc_entry_add(struct dp_id dp_id, struct adc_rules *adc_filter_entry)
 				IPV4_ADDR_HOST_FORMAT(ipv4), prefix);
 		dp_adc_filter_entry_add(dp_id, &msg_payload);
 
-		RTE_LOG(DEBUG, DP, "ADC_TBL ADD: rule_id:%d, prio:%x,domain_ip:"
-				IPV4_ADDR ",",
+		RTE_LOG(INFO, DP, "ADC_TBL ADD: rule_id:%d, prio:%x, domain_ip:"\
+				IPV4_ADDR"\n",
 				adc_filter_entry->rule_id, adc_filter_entry->precedence,
-				IPV4_ADDR_HOST_FORMAT(adc_filter_entry->u.domain_prefix.ip_addr.u.ipv4_addr));
+				IPV4_ADDR_HOST_FORMAT(\
+					adc_filter_entry->u.domain_prefix.ip_addr.u.ipv4_addr));
+
 	} else if (adc_filter_entry->sel_type == DOMAIN_NAME) {
 		int ret;
 
 		ret = epc_sponsdn_dn_add_single(adc_filter_entry->u.domain_name, adc_filter_entry->rule_id);
 		if (ret)
 			RTE_LOG(DEBUG, DP, "failed to add DN error code %d\n", ret);
-		RTE_LOG(DEBUG, DP, "Spons DN ADD: rule_id:%d, prio:%x,"
-				"domain_name:%s",
+
+		RTE_LOG(INFO, DP, "Spons DN ADD: rule_id:%d, prio:%x,domain_name:%s\n",
 				adc_filter_entry->rule_id, adc_filter_entry->precedence,
 				adc_filter_entry->u.domain_name);
 	}

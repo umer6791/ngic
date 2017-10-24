@@ -293,7 +293,9 @@ static struct{
 } parm_config;
 
 const char cb_port_delim[] = ":";
-static int numa_on = 1;	/**< NUMA is enabled by default. */
+/*static int numa_on = 1;*/	/**< NUMA is enabled by default. */
+static int numa_on = 0;	/**< NUMA is disable by default. */
+
 enum acl_cfg_tbl{
 	SDF_ACTIVE,
 	SDF_STANDBY,
@@ -421,7 +423,11 @@ static void add_single_rule(const void *nodep, const VISIT which, const int dept
 {
 	struct acl4_rule *r;
 	uint32_t rule_id;
-	int socketid = rte_socket_id();
+	/*
+	 * Check numa socket enable or disable based on
+	 * get or set socketid.
+	 */
+	int socketid = numa_on?rte_socket_id():0;
 	struct acl_config *pacl_config = &acl_config[config_tbl];
 	struct rte_acl_ctx *context = pacl_config->acx_ipv4[socketid];
 #pragma GCC diagnostic push  /* require GCC 4.6 */
@@ -886,7 +892,7 @@ static int
 parse_cb_ipv4vlan_rule(char *str, struct rte_acl_rule *v, int has_userdata)
 {
 	int i, rc;
-	char *s, *sp, *in[CB_FLD_NUM], tmp[MAX_LEN];
+	char *s = NULL, *sp = NULL, *in[CB_FLD_NUM]={0}, tmp[MAX_LEN] = {0};
 	static const char *dlm = " \t\n";
 	int dim = has_userdata ? CB_FLD_NUM : CB_FLD_USERDATA;
 
@@ -1221,11 +1227,21 @@ reset_and_build_rules(enum acl_cfg_tbl type)
 {
 	int dim = RTE_DIM(ipv4_defs);
 	struct rte_acl_config acl_build_param;
-	int socketid = rte_socket_id();
+	/*
+	 * Check numa socket enable or disable based on
+	 * get or set socketid.
+	 */
+	int socketid = numa_on?rte_socket_id():0;
 	struct rte_acl_param acl_param;
 	char name[MAX_LEN];
 	struct acl_config *pacl_config = &acl_config[type];
 	struct rte_acl_ctx *context = pacl_config->acx_ipv4[socketid];
+
+	if (socketid < 0) {
+		RTE_LOG(ERR, ACL, "Invalid RTE socket Id: %d. \nExit.\n",
+			socketid);
+		return -1;
+	}
 
 	sprintf(name, "ACLTable-%d", type);
 	acl_param.name = name;
@@ -1463,6 +1479,10 @@ dp_sdf_filter_entry_add(struct dp_id dp_id, struct pkt_filter *pkt_filter)
 		return -1;
 
 	sdf_active_tbl = standby;
+
+	RTE_LOG(INFO, DP, "ACL ADD:%s rule_id:%d, precedence:%d,rule:%s\n",
+			"SDF", pkt_filter->pcc_rule_id,
+			pkt_filter->precedence, pkt_filter->u.rule_str);
 
 	return 0;
 }

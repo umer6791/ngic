@@ -102,6 +102,14 @@ enum iptype {
 };
 
 /**
+ * SDF Rule type field.
+ */
+enum rule_type {
+	RULE_STRING = 0,
+	FIVE_TUPLE,
+};
+
+/**
  * IPv4 or IPv6 address configuration structure.
  */
 struct ip_addr {
@@ -176,6 +184,7 @@ struct pkt_filter {
 		struct five_tuple_rule rule_5tp;	/* 5 Tuple rule.
 							 * This field is currently not used*/
 	} u;
+	enum rule_type sel_rule_type;
 } __attribute__((packed, aligned(RTE_CACHE_LINE_SIZE)));
 
 /**

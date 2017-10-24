@@ -106,6 +106,11 @@ static enum policer_action policer_table[e_RTE_METER_COLORS][e_RTE_METER_COLORS]
 	{DROP, DROP, RED}
 };
 
+/**
+ * TRUE/FALSE
+ */
+enum boolean { FALSE, TRUE };
+
 struct mtr_table mtr_profile_tbl;
 FLOW_METER *app_flows;
 FLOW_METER *ambr_flows;

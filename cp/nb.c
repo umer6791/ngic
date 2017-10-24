@@ -120,11 +120,6 @@ set_dpn_id(const char *dpn_id_from_json)
 		return 0;
 	dpn_id = strdup(dpn_id_from_json);
 	printf("Configured to use %s\n", dpn_id);
-#ifdef CP_DP_TABLE_CONFIG
-	initialize_tables_on_dp();
-#endif
-	push_all_packet_filters();
-	parse_adc_rules();
 	return 0;
 }
 

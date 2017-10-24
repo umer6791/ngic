@@ -142,11 +142,6 @@
  */
 #define DPN_ID			(12345)
 
-/**
- * TRUE/FALSE
- */
-enum boolean { FALSE, TRUE };
-
 #define DEFAULT_HASH_FUNC rte_jhash
 
 

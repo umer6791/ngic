@@ -76,7 +76,7 @@ dp_pcc_entry_add(struct dp_id dp_id, struct pcc_rules *entry)
 		return -1;
 	}
 
-	RTE_LOG(DEBUG, DP, "PCC_TBL ADD: rule_id:%u, addr:0x%"PRIx64
+	RTE_LOG(INFO, DP, "PCC_TBL ADD: rule_id:%u, addr:0x%"PRIx64
 			", ul_mtr_idx:%u, dl_mtr_idx:%u\n",
 			pcc->rule_id, (uint64_t)pcc,
 			pcc->qos.ul_mtr_profile_index,

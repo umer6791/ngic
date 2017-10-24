@@ -43,6 +43,8 @@
 
 #define MAX_NODE_ID_SIZE     (UINT8_MAX)
 #define MAX_NETWORK_ID_SIZE  (UINT8_MAX)
+#define MAX_LEN 128
+
 
 
 /* s11 interface message type */
@@ -57,6 +59,10 @@ enum s11_msgtype {
 	DPN_STATUS_INDICATION = 12,
 	DPN_STATUS_ACK = 13,
 	CONTROLLER_STATUS_INDICATION = 14,
+	ADC_RULE = 17,
+	PCC_RULE = 18,
+	METER_RULE = 19,
+	SDF_RULE = 20,
 };
 
 enum dpn_status {
@@ -145,6 +151,35 @@ struct zmqbuf {
 			uint32_t op_id;
 			uint8_t  node_network_id_buffer[NN_ID_BUF_LEN];
 		} ddn;
+		struct adc_rule_t {
+			uint8_t sel_type;
+		} adc_rule_m;
+		struct pcc_rules_t {
+			uint8_t metering_method;
+			uint8_t charging_mode;
+			uint16_t rating_group;
+			uint8_t rule_status;
+			uint8_t gate_status;
+			uint32_t monitoring_key;
+			uint32_t precedence;
+			uint8_t level_of_report;
+			uint8_t mute_status;
+			uint16_t ul_mtr_profile_idx;
+			uint16_t dl_mtr_profile_idx;
+			uint8_t redirect_info;
+		} pcc_rules_m;
+		struct mtr_entry_t {
+			uint16_t meter_profile_index;
+			uint64_t cir;
+			uint64_t cbs;
+			uint64_t ebs;
+			uint16_t metering_method;
+		} mtr_entry_m;
+		struct sdf_entry_t {
+			uint32_t pcc_rule_id;
+			uint32_t precedence;
+			uint8_t rule_type;
+		} sdf_entry_m;
 
 	} msg_union;
 };

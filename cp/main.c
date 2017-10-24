@@ -271,8 +271,8 @@ init_cp(void)
 	initialize_tables_on_dp();
 #endif
 	parse_adc_rules();
-#endif
 	init_packet_filters();
+#endif
 
 	create_ue_hash();
 }

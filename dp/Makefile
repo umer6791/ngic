@@ -154,6 +154,11 @@ CFLAGS += -DHYPERSCAN_DPI
 # Un-comment below line if you have 16 x 1GB hugepages.
 #CFLAGS += -DHUGE_PAGE_16GB
 
+# Un-comment below line to print ADC, PCC, METER and SDF rule entry
+# passed from FPC-SDN in add entry operation.
+# Note : This flag works with Log level 'DEBUG'
+#CFLAGS += -DPRINT_NEW_RULE_ENTRY
+
 # Un-comment below line to configure DP Tables from DP app.
 CFLAGS += -DDP_TABLE_CONFIG
 
