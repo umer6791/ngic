@@ -361,38 +361,45 @@ Following are the options for setup:
  Step 1: Environment setup.
 ----------------------------------------------------------
 [1] Check OS and network connection
+[2] Configured Service - Collocated CP and DP
 
 ----------------------------------------------------------
  Step 2: Download and Install
 ----------------------------------------------------------
-[2] Agree to download
-[3] Download packages
-[4] Download DPDK submodule
-[5] Download DPDK zip (optional, use it when option 4 fails)
-[6] Install DPDK
-[7] Setup hugepages
+[3] Agree to download
+[4] Download packages
+[5] Download DPDK submodule
+[6] Download DPDK zip (optional, use it when option 5 fails)
+[7] Install DPDK
+[8] Download hyperscan
 
 ----------------------------------------------------------
- Step 3: Build NGIC
+Step 3: Build NGIC
 ----------------------------------------------------------
-[8] Build NGIC
+[9] Build NGIC
 
-[9] Exit Script
+[10] Exit Script
 
 ```
 
 [1] This will check the OS version and network connectivity and report
     any anomaly. If the system is behind a proxy, it will ask for a proxy
     and update the required environment variables.
-[2] Select yes in this option to be able to download the required packages.
-[3] Actual download of the dependent packages like libpcap, build essentials
+[2] Select services to build. You will be prompted to select following options
+    from sub-menu, and optionally edit the memory size:
+	1. CP Only
+	2. DP Only
+	3. Collocated CP and DP
+[3] Select yes in this option to be able to download the required packages.
+[4] Actual download of the dependent packages like libpcap, build essentials
     etc.
-[4] This option downloads dpdk which is added as a git submodule in the
+[5] This option downloads dpdk which is added as a git submodule in the
     ngic repo and then sets the dpdk directory to this directory.
-[5] Alternatively dpdk can be downloaded as a zip file using this option.
-[6] Build and set environment variables to use DPDK.
-[7] Setup hugepages for the system
-[8] Build controlplane and dataplane applications. This sets the RTE_SDK
+[6] Alternatively dpdk can be downloaded as a zip file using this option.
+[7] Build and set environment variables to use DPDK.
+[8] Setup hugepages for the system. This option is displayed in menu when
+    'DP Only' or 'Collocated CP and DP' option is selected in [2].
+[9] Build controlplane and dataplane applications. This sets the RTE_SDK
     environment variable and builds the applications.
 
 #### 3.2 Manual build:
