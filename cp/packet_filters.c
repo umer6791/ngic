@@ -16,6 +16,8 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <string.h>
+#include <ctype.h>
 
 #include <rte_malloc.h>
 #include <rte_lcore.h>
@@ -53,12 +55,18 @@ struct mtr_entry *mtr_profiles[METER_PROFILE_SDF_TABLE_SIZE] = {
 		[0] = NULL, /* index = 0 is invalid */
 };
 
+struct pcc_rules *pcc_filters[PCC_TABLE_SIZE] = {
+		[0] = NULL, /* index = 0 is invalid */
+};
+
 packet_filter *packet_filters[SDF_FILTER_TABLE_SIZE] = {
 		[0] = NULL, /* index = 0 is invalid */
 };
 
 uint16_t num_mtr_profiles;
 uint16_t num_packet_filters = FIRST_FILTER_ID;
+uint16_t num_sdf_filters = FIRST_FILTER_ID;
+uint16_t num_pcc_filter = FIRST_FILTER_ID;
 uint32_t num_adc_rules;
 uint32_t adc_rule_id[MAX_ADC_RULES];
 uint64_t cbs;
@@ -75,17 +83,53 @@ static uint32_t name_to_num(char *name)
 	return num;
 }
 
-void
-push_all_packet_filters(void)
+int
+get_packet_filter_id(const pkt_fltr *pf)
 {
-	uint16_t i;
+	uint16_t index;
+	for (index = FIRST_FILTER_ID; index < num_packet_filters; ++index) {
+		if (!memcmp(pf, &packet_filters[index]->pkt_fltr,
+				sizeof(pkt_fltr)))
+			return index;
+	}
+	return -ENOENT;
+}
 
-	for (i = FIRST_FILTER_ID; i < num_packet_filters; ++i)
-		push_packet_filter(i);
+uint8_t
+get_packet_filter_direction(uint16_t index)
+{
+	return packet_filters[index]->pkt_fltr.direction;
+}
+
+packet_filter *
+get_packet_filter(uint16_t index)
+{
+	if (unlikely(index >= num_packet_filters))
+		return NULL;
+	return packet_filters[index];
 }
 
 void
-push_packet_filter(uint16_t index)
+reset_packet_filter(pkt_fltr *pf)
+{
+	memcpy(pf, &catch_all, sizeof(pkt_fltr));
+}
+
+int meter_profile_index_get(uint64_t cir)
+{
+	int index;
+	uint64_t CIR = cir >> 3; /* Convert bit rate into bytes */
+
+	for (index = 0; index < num_mtr_profiles; index++) {
+		if (mtr_profiles[index]->mtr_param.cir == CIR)
+			return mtr_profiles[index]->mtr_profile_index;
+	}
+
+	return 0;
+}
+
+void
+push_sdf_rules(uint16_t index)
 {
 	struct dp_id dp_id = { .id = DPN_ID };
 	pkt_fltr filter = packet_filters[index]->pkt_fltr;
@@ -135,39 +179,22 @@ push_packet_filter(uint16_t index)
 	    direction_str[filter.direction], index, filter.precedence,
 	    pktf.u.rule_str);
 
-	struct pcc_rules pcc_entry = {
-			.gate_status = OPEN,
-			.rating_group = filter.rating_group,
-			.monitoring_key = 0,
-			.rule_status = 0,
-			.report_level = 0,
-			.charging_mode = 0,
-			.drop_pkt_count = 0,
-			.mute_notify = 0,
-			.metering_method = 0,
-			.session_cont = 0,
-			.precedence = filter.precedence,
-			.redirect_info.info = 0,
-			.service_id = 0,
-			.rule_id = index,
-	};
-
-	pcc_entry.qos.ul_mtr_profile_index = packet_filters[index]->ul_mtr_idx;
-	pcc_entry.qos.dl_mtr_profile_index = packet_filters[index]->dl_mtr_idx;
-	memset(pcc_entry.sponsor_id, 0, sizeof(pcc_entry.sponsor_id));
-	strncpy(pcc_entry.rule_name, "SimuRule", sizeof(pcc_entry.rule_name));
-
-	if (pcc_entry_add(dp_id, pcc_entry) < 0 )
-		rte_exit(EXIT_FAILURE,"PCC entry add fail !!!");
-
 	if (sdf_filter_entry_add(dp_id, pktf) < 0)
 		rte_exit(EXIT_FAILURE,"SDF filter entry add fail !!!");
 }
 
-int
-install_packet_filter(const packet_filter *new_packet_filter)
+/**
+*Installs a sdf rules in the CP & DP.
+*@param new_packet_filter
+*  A sdf rules yet to be installed
+*@return
+*  \- >= 0 - on success - indicates index of sdf rules
+*  \- < 0 - on error
+*/
+static int
+install_sdf_rules(const packet_filter *new_packet_filter)
 {
-	if (num_packet_filters >= SDF_FILTER_TABLE_SIZE)
+	if (num_sdf_filters >= SDF_FILTER_TABLE_SIZE)
 		return -ENOMEM;
 
 	packet_filter *filter = rte_zmalloc_socket(NULL, sizeof(packet_filter),
@@ -182,66 +209,63 @@ install_packet_filter(const packet_filter *new_packet_filter)
 	}
 
 	memcpy(filter, new_packet_filter, sizeof(packet_filter));
-	uint16_t index = num_packet_filters;
+	uint16_t index = num_sdf_filters;
 
-	num_packet_filters++;
+	num_sdf_filters++;
 	packet_filters[index] = filter;
 
 #ifdef SDN_ODL_BUILD
 	if (dpn_id)
-		push_packet_filter(index);
+		push_sdf_rules(index);
 #else
-	push_packet_filter(index);
+	push_sdf_rules(index);
 #endif
 	return index;
 }
 
-int
-get_packet_filter_id(const pkt_fltr *pf)
+/**
+*Installs a pcc rules in the CP & DP.
+*@param new_pcc_entry
+*  A pcc rules yet to be installed
+*@return
+*  \- >= 0 - on success - indicates num_pcc_filter of pcc rules
+*  \- < 0 - on error
+*/
+static int
+install_pcc_rules(struct pcc_rules new_pcc_entry)
 {
-	uint16_t index;
-	for (index = FIRST_FILTER_ID; index < num_packet_filters; ++index) {
-		if (!memcmp(pf, &packet_filters[index]->pkt_fltr,
-				sizeof(pkt_fltr)))
-			return index;
-	}
-	return -ENOENT;
-}
+	struct dp_id dp_id = { .id = DPN_ID };
 
+	if (num_pcc_filter >= PCC_TABLE_SIZE)
+		return -ENOMEM;
 
-uint8_t
-get_packet_filter_direction(uint16_t index)
-{
-	return packet_filters[index]->pkt_fltr.direction;
-}
-
-
-packet_filter *
-get_packet_filter(uint16_t index)
-{
-	if (unlikely(index >= num_packet_filters))
-		return NULL;
-	return packet_filters[index];
-}
-
-
-void
-reset_packet_filter(pkt_fltr *pf)
-{
-	memcpy(pf, &catch_all, sizeof(pkt_fltr));
-}
-
-int meter_profile_index_get(uint64_t cir)
-{
-	int index;
-	uint64_t CIR = cir >> 3; /* Convert bit rate into bytes */
-
-	for (index = 0; index < num_mtr_profiles; index++) {
-		if (mtr_profiles[index]->mtr_param.cir == CIR)
-			return mtr_profiles[index]->mtr_profile_index;
+	struct pcc_rules *pcc_filter = rte_zmalloc_socket(NULL,
+			sizeof(new_pcc_entry),
+			RTE_CACHE_LINE_SIZE, rte_socket_id());
+	if (NULL == pcc_filter) {
+		fprintf(stderr, "Failure to allocate memeory for pcc filter "
+				"structure: %s (%s:%d)\n",
+				rte_strerror(rte_errno),
+				__FILE__,
+				__LINE__);
+		return -ENOMEM;
 	}
 
-	return 0;
+	memcpy(pcc_filter, &new_pcc_entry, sizeof(new_pcc_entry));
+
+	pcc_filters[num_pcc_filter] = pcc_filter;
+	new_pcc_entry.rule_id = num_pcc_filter;
+	num_pcc_filter++;
+
+#ifdef SDN_ODL_BUILD
+	if (dpn_id)
+		if (pcc_entry_add(dp_id, new_pcc_entry) < 0 )
+			rte_exit(EXIT_FAILURE,"PCC entry add fail !!!");
+#else
+	if (pcc_entry_add(dp_id, new_pcc_entry) < 0 )
+		rte_exit(EXIT_FAILURE,"PCC entry add fail !!!");
+#endif
+	return num_pcc_filter;
 }
 
 static int
@@ -327,32 +351,28 @@ init_mtr_profile(void)
 		mtr_entry.mtr_profile_index = atoi(entry);
 
 		install_meter_profiles(dp_id, mtr_entry);
+
 	}
 }
 
-
-void
-init_packet_filters(void)
+static void
+init_sdf_rules(void)
 {
-	unsigned num_packet_filters = 0;
+	unsigned num_sdf_rules = 0;
 	unsigned i = 0;
-	struct rte_cfgfile *file = rte_cfgfile_load(STATIC_PCC_FILE, 0);
-	const char *entry;
+	const char *entry = NULL;
+	struct rte_cfgfile *file = rte_cfgfile_load(SDF_RULE_FILE, 0);
 
-	if (file == NULL)
+	if (NULL == file)
 		rte_panic("Cannot load configuration file %s\n",
-				STATIC_PCC_FILE);
+				SDF_RULE_FILE);
 
-	/* init dpn meter profile table before configuring pcc/adc rules*/
-	init_mtr_profile();
-
-	entry = rte_cfgfile_get_entry(file, "GLOBAL", "NUM_PACKET_FILTERS");
+	entry = rte_cfgfile_get_entry(file, "GLOBAL", "NUM_SDF_FILTERS");
 
 	if (!entry)
-		rte_panic("Invalid pcc configuration file format\n");
+		rte_panic("Invalid sdf configuration file format\n");
 
-
-	num_packet_filters = atoi(entry);
+	num_sdf_rules = atoi(entry);
 	entry = rte_cfgfile_get_entry(file,
 				"GLOBAL", "UL_AMBR_MTR_PROFILE_IDX");
 
@@ -367,20 +387,21 @@ init_packet_filters(void)
 		rte_panic("Invalid AMBR configuration file format\n");
 	dlambr_idx = atoi(entry);
 
-	for (i = 0; i < num_packet_filters; ++i) {
-		char sectionname[64];
-		int ret;
+	for (i = 0; i <= num_sdf_rules; ++i) {
+		char sectionname[64] = {0};
+		int ret = 0;
 		struct in_addr tmp_addr;
 		pkt_fltr pf;
+
 		reset_packet_filter(&pf);
 		snprintf(sectionname, sizeof(sectionname),
-				"PACKET_FILTER_%u", i);
+				"SDF_FILTER_%u", i);
 
 		entry = rte_cfgfile_get_entry(file, sectionname,
 				"RATING_GROUP");
 		if (!entry)
 			rte_panic(
-			    "Invalid pcc configuration file format - "
+			    "Invalid sdf configuration file format - "
 			    "each filter must contain RATING_GROUP entry\n");
 
 		pf.rating_group = atoi(entry);
@@ -399,13 +420,12 @@ init_packet_filters(void)
 		if (entry)
 			pf.precedence = atoi(entry);
 
-
 		entry = rte_cfgfile_get_entry(file, sectionname, "IPV4_REMOTE");
 		if (entry) {
 			if (inet_aton(entry, &pf.remote_ip_addr) == 0)
 				rte_panic("Invalid address %s in section %s "
-						"pcc config file %s\n",
-				    entry, sectionname, STATIC_PCC_FILE);
+						"sdf config file %s\n",
+						entry, sectionname, SDF_RULE_FILE);
 		}
 
 		entry = rte_cfgfile_get_entry(file, sectionname,
@@ -414,10 +434,11 @@ init_packet_filters(void)
 			ret = inet_aton(entry, &tmp_addr);
 			if (ret == 0
 			    || __builtin_clzl(~tmp_addr.s_addr)
-			    + __builtin_ctzl(tmp_addr.s_addr) != 32)
+				+ __builtin_ctzl(tmp_addr.s_addr) != 32)
 				rte_panic("Invalid address %s in section %s "
-					"pcc config file %s\n",
-					entry, sectionname, STATIC_PCC_FILE);
+						"sdf config file %s\n",
+						entry, sectionname, SDF_RULE_FILE);
+
 			pf.remote_ip_mask =
 					__builtin_popcountl(tmp_addr.s_addr);
 		}
@@ -427,12 +448,10 @@ init_packet_filters(void)
 		if (entry)
 			pf.remote_port_low = htons((uint16_t) atoi(entry));
 
-
 		entry = rte_cfgfile_get_entry(file, sectionname,
 				"REMOTE_HIGH_LIMIT_PORT");
 		if (entry)
 			pf.remote_port_high = htons((uint16_t) atoi(entry));
-
 
 		entry = rte_cfgfile_get_entry(file, sectionname, "PROTOCOL");
 		if (entry) {
@@ -444,8 +463,8 @@ init_packet_filters(void)
 		if (entry) {
 			if (inet_aton(entry, &pf.local_ip_addr) == 0)
 				rte_panic("Invalid address %s in section %s "
-						"pcc config file %s\n",
-				    entry, sectionname, STATIC_PCC_FILE);
+						"sdf config file %s\n",
+						entry, sectionname, SDF_RULE_FILE);
 		}
 
 		entry = rte_cfgfile_get_entry(file, sectionname,
@@ -456,8 +475,9 @@ init_packet_filters(void)
 			    || __builtin_clzl(~tmp_addr.s_addr)
 			    + __builtin_ctzl(tmp_addr.s_addr) != 32)
 				rte_panic("Invalid address %s in section %s "
-						"pcc config file %s\n",
-				    entry, sectionname, STATIC_PCC_FILE);
+						"sdf config file %s\n",
+						entry, sectionname, SDF_RULE_FILE);
+
 			pf.local_ip_mask = __builtin_popcountl(tmp_addr.s_addr);
 		}
 
@@ -487,7 +507,136 @@ init_packet_filters(void)
 			rte_panic("Invalid MTR_PROFILE_IDX configuration\n");
 		pkt_filter.dl_mtr_idx = atoi(entry);
 
-		ret = install_packet_filter(&pkt_filter);
+		ret = install_sdf_rules(&pkt_filter);
+		if (ret < 0) {
+			rte_panic("Failure to install sdf rules: "
+					"%s (%s:%d)\n",
+					rte_strerror(rte_errno), __FILE__, __LINE__);
+		}
+	}
+}
+
+static void
+init_pcc_rules(void)
+{
+	unsigned num_pcc_rules = 0;
+	unsigned i = 0;
+	const char *entry = NULL;
+	struct rte_cfgfile *file = rte_cfgfile_load(PCC_RULE_FILE, 0);
+
+	if (NULL == file)
+		rte_panic("Cannot load configuration file %s\n",
+				PCC_RULE_FILE);
+
+	entry = rte_cfgfile_get_entry(file, "GLOBAL", "NUM_PCC_FILTERS");
+
+	if (!entry)
+		rte_panic("Invalid pcc configuration file format\n");
+
+
+	num_pcc_rules = atoi(entry);
+	entry = rte_cfgfile_get_entry(file,
+				"GLOBAL", "UL_AMBR_MTR_PROFILE_IDX");
+
+	if (!entry)
+		rte_panic("Invalid AMBR configuration file format\n");
+	ulambr_idx = atoi(entry);
+
+	entry = rte_cfgfile_get_entry(file,
+				"GLOBAL", "DL_AMBR_MTR_PROFILE_IDX");
+
+	if (!entry)
+		rte_panic("Invalid AMBR configuration file format\n");
+	dlambr_idx = atoi(entry);
+
+	for (i = 0; i <= num_pcc_rules; ++i) {
+		char sectionname[64] = {0};
+		int ret = 0;
+		struct pcc_rules tmp_pcc = {0};
+
+		snprintf(sectionname, sizeof(sectionname),
+				"PCC_FILTER_%u", i);
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "RULE_NAME");
+		if (entry)
+			strncpy(tmp_pcc.rule_name, entry, sizeof(tmp_pcc.rule_name));
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "RATING_GROUP");
+		if (!entry)
+			rte_panic(
+			    "Invalid pcc configuration file format - "
+			    "each filter must contain RATING_GROUP entry\n");
+
+		tmp_pcc.rating_group = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "SERVICE_ID");
+		if (entry)
+			tmp_pcc.service_id = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "RULE_STATUS");
+		if (entry)
+			tmp_pcc.rule_status = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "GATE_STATUS");
+		if (entry)
+			tmp_pcc.gate_status = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "SESSION_CONT");
+		if (entry)
+			tmp_pcc.session_cont = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "REPORT_LEVEL");
+		if (entry)
+			tmp_pcc.report_level = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "CHARGING_MODE");
+		if (entry)
+			tmp_pcc.charging_mode = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "METERING_METHOD");
+		if (entry)
+			tmp_pcc.metering_method = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "MUTE_NOTIFY");
+		if (entry)
+			tmp_pcc.mute_notify = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "MONITORING_KEY");
+		if (entry)
+			tmp_pcc.monitoring_key = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "SPONSOR_ID");
+		if (entry)
+			strncpy(tmp_pcc.sponsor_id, entry, sizeof(tmp_pcc.sponsor_id));
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "REDIRECT_INFO");
+		if (entry)
+			tmp_pcc.redirect_info.info = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "PRECEDENCE");
+		if (entry)
+			tmp_pcc.precedence = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname, "DROP_PKT_COUNT");
+		if (entry)
+			tmp_pcc.drop_pkt_count = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file,
+					sectionname, "UL_MBR_MTR_PROFILE_IDX");
+		if (!entry)
+			rte_panic("Invalid MTR_PROFILE_IDX configuration\n");
+
+		tmp_pcc.qos.ul_mtr_profile_index = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file,
+					sectionname, "DL_MBR_MTR_PROFILE_IDX");
+
+		if (!entry)
+			rte_panic("Invalid MTR_PROFILE_IDX configuration\n");
+
+		tmp_pcc.qos.dl_mtr_profile_index = atoi(entry);
+
+		ret = install_pcc_rules(tmp_pcc);
 		if (ret < 0) {
 			rte_panic("Failure to install packet filters: "
 					"%s (%s:%d)\n",
@@ -495,181 +644,201 @@ init_packet_filters(void)
 					__FILE__,
 					__LINE__);
 		}
+
 	}
 }
 
-static void print_adc_rule(struct adc_rules *adc_rule)
+void
+init_packet_filters(void)
 {
-	printf("%-8u ", adc_rule->rule_id);
-	switch (adc_rule->sel_type) {
+	/* init dpn meter profile table before configuring pcc/adc rules*/
+	init_mtr_profile();
+
+	/* init pcc rule tables on dp*/
+	init_pcc_rules();
+
+	/* init dpn sdf rules table configuring on dp*/
+	init_sdf_rules();
+}
+
+static void print_adc_rule(struct adc_rules adc_rule)
+{
+	printf("%-8u ", adc_rule.rule_id);
+	switch (adc_rule.sel_type) {
 	case DOMAIN_IP_ADDR:
 		printf("%-10s " IPV4_ADDR, "IP",
-			IPV4_ADDR_HOST_FORMAT(adc_rule->u.domain_ip.u.ipv4_addr));
+			IPV4_ADDR_HOST_FORMAT(adc_rule.u.domain_ip.u.ipv4_addr));
 		break;
 	case DOMAIN_IP_ADDR_PREFIX:
 		printf("%-10s " IPV4_ADDR"/%d ", "IP_PREFIX",
-			IPV4_ADDR_HOST_FORMAT(adc_rule->u.domain_prefix.ip_addr.u.ipv4_addr),
-			adc_rule->u.domain_prefix.prefix);
+			IPV4_ADDR_HOST_FORMAT(adc_rule.u.domain_prefix.ip_addr.u.ipv4_addr),
+			adc_rule.u.domain_prefix.prefix);
 		break;
 	case DOMAIN_NAME:
-		printf("%-10s %-35s ", "DOMAIN", adc_rule->u.domain_name);
+		printf("%-10s %-35s ", "DOMAIN", adc_rule.u.domain_name);
 		break;
 	default:
 		printf("ERROR IN ADC RULE");
 	}
 	printf("%8s %15s %15u %15u %15u %15s %15s <\n",
-			(adc_rule->gate_status == CLOSE) ? "CLOSE" : "OPEN",
-			adc_rule->sponsor_id,
-			adc_rule->service_id,
-			adc_rule->mtr_profile_index,
-			adc_rule->rating_group,
-			adc_rule->tarriff_group,
-			adc_rule->tarriff_time);
+			(adc_rule.gate_status == CLOSE) ? "CLOSE" : "OPEN",
+			adc_rule.sponsor_id,
+			adc_rule.service_id,
+			adc_rule.mtr_profile_index,
+			adc_rule.rating_group,
+			adc_rule.tarriff_group,
+			adc_rule.tarriff_time);
 }
 
-void parse_adc_rules(void)
+void
+parse_adc_rules(void)
 {
-	FILE *adc_rule_file = fopen(ADC_RULE_FILE, "r");
+	unsigned num_adc_rules = 0;
+	unsigned i = 0;
+	uint32_t rule_id = 1;
+	const char *entry = NULL;
 	struct dp_id dp_id = { .id = DPN_ID };
+	struct rte_cfgfile *file = rte_cfgfile_load(ADC_RULE_FILE, 0);
 
-	if (!adc_rule_file)
-		rte_exit(EXIT_FAILURE, "Cannot open file: %s\n",
+	if (file == NULL)
+		rte_panic("Cannot load configuration file %s\n",
 				ADC_RULE_FILE);
 
-	uint32_t lines = 1, line = 0;
-	uint32_t longest_line = 0, line_length = 0;
-	const char *delimit = " \n\t";
-	struct in_addr addr;
+	entry = rte_cfgfile_get_entry(file, "GLOBAL", "NUM_ADC_RULES");
 
-	while (!feof(adc_rule_file)) {
-		char ch = fgetc(adc_rule_file);
+	if (!entry)
+		rte_panic("Invalid adc configuration file format\n");
 
-		if (ch == '\n') {
-			++lines;
-			if (longest_line < line_length)
-				longest_line = line_length + 1;
-			line_length = 0;
-		} else {
-			line_length++;
-		}
-	}
-	rewind(adc_rule_file);
-	clearerr(adc_rule_file);
-	char *buffer = (char *)rte_malloc_socket(NULL, sizeof(char) * longest_line,
-				RTE_CACHE_LINE_SIZE, rte_socket_id());
-	if (buffer == NULL)
-		rte_panic("Failure to allocate adc file buffer: %s (%s:%d)\n",
-				rte_strerror(rte_errno),
-				__FILE__,
-				__LINE__);
+	num_adc_rules = atoi(entry);
 
-	uint32_t rule_id = 1;
+	for (i = 0; i < num_adc_rules; ++i) {
+		char sectionname[64] = {0};
+		char buff[64] = {0};
+		struct adc_rules tmp_adc = { 0 };
+		struct in_addr addr;
 
-	for (line = 0; line < lines && !feof(adc_rule_file); ++line) {
-		struct adc_rules entry = { 0 };
-		char in;
-		*buffer = '\0';
-		while (fread(&in, 1, 1, adc_rule_file)) {
-			if (in == '\n')
+		snprintf(sectionname, sizeof(sectionname),
+				"ADC_RULE_%u", i);
+
+		entry = rte_cfgfile_get_entry(file, sectionname,
+				"ADC_TYPE");
+
+		if (!entry)
+			rte_panic("Invalid ADC TYPE configuration file format\n");
+
+		tmp_adc.sel_type = atoi(entry);
+
+		switch (tmp_adc.sel_type) {
+			case DOMAIN_NAME:
+				entry = rte_cfgfile_get_entry(file, sectionname,
+						"DOMAIN");
+				if(entry)
+					strncpy(tmp_adc.u.domain_name, entry,
+							sizeof(tmp_adc.u.domain_name));
 				break;
-			strncat(buffer, &in, 1);
-		}
 
-		if (*buffer == '#' || *buffer == '\n')
-			continue;
+			case DOMAIN_IP_ADDR:
+				entry = rte_cfgfile_get_entry(file, sectionname,
+						"IP");
 
-		{ /* determine rule (if any)*/
-			char *rule_str = strtok(buffer, delimit);
+				if (entry) {
+					inet_aton(entry, &addr);
+					tmp_adc.u.domain_ip.u.ipv4_addr = ntohl(addr.s_addr);
+					tmp_adc.u.domain_ip.iptype = IPTYPE_IPV4;
+				}
+				break;
 
-			if (rule_str != NULL) {
-				char *t;
+			case DOMAIN_IP_ADDR_PREFIX:
+				entry = rte_cfgfile_get_entry(file, sectionname,
+						"IP");
 
-				/* assume IP unless '/' or alpha is encountered*/
-				entry.sel_type = DOMAIN_IP_ADDR;
-				for (t = rule_str; *t; ++t) {
-					if (isalpha(*t)) {
-						entry.sel_type = DOMAIN_NAME;
-						strcpy(entry.u.domain_name, rule_str);
-						break;
-					} else if (*t == '/') {
-						*t = '\0';
-						entry.sel_type = DOMAIN_IP_ADDR_PREFIX;
-						entry.u.domain_prefix.prefix =
-							strtol(t+1, NULL, 10);
-
-						inet_aton(rule_str, &addr);
-						entry.u.domain_prefix.ip_addr.u.ipv4_addr = ntohl(addr.s_addr);
-
-						break;
-					} else if (*t != '.' && !isdigit(*t)) {
-						rte_exit(EXIT_FAILURE, "Unexpected char in %s file :%s\n", ADC_RULE_FILE, rule_str);
-						break;
-					}
+				if (entry) {
+					inet_aton(entry, &addr);
+					tmp_adc.u.domain_ip.u.ipv4_addr = ntohl(addr.s_addr);
+					tmp_adc.u.domain_ip.iptype = IPTYPE_IPV4;
 				}
 
-				if (entry.sel_type == DOMAIN_IP_ADDR) {
-					inet_aton(rule_str, &addr);
-					entry.u.domain_ip.u.ipv4_addr = ntohl(addr.s_addr);
-					entry.u.domain_ip.iptype = IPTYPE_IPV4;
-				}
-			} else
-				continue;
-		}
-		{
-			char *sponsor_id = strtok(NULL, delimit);
+				entry = rte_cfgfile_get_entry(file, sectionname,
+						"PREFIX");
 
-			if (sponsor_id != NULL) {
-				entry.gate_status = strcmp(sponsor_id, "DROP");
-				if (entry.gate_status == CLOSE)
-					sponsor_id = strtok(NULL, delimit);
-				if (sponsor_id != NULL)
-					strcpy(entry.sponsor_id, sponsor_id);
-			}
-		}
-		{
-			char *service_id = strtok(NULL, delimit);
+				if (entry)
+					tmp_adc.u.domain_prefix.prefix = atoi(entry);
 
-			if (service_id != NULL) {
-				entry.service_id = name_to_num(service_id);
+				break;
 
-				if (!strcmp(service_id, "CIPA"))
-					puts("CIPA Rule");
-			}
-		}
-		{
-			char *mtr_idx = strtok(NULL, delimit);
-
-			if (mtr_idx)
-				entry.mtr_profile_index = atoi(mtr_idx);
-		}
-		{
-			char *rate_group = strtok(NULL, delimit);
-
-			if (rate_group)
-				entry.rating_group = name_to_num(rate_group);
-		}
-		{
-			char *tarriff_group = strtok(NULL, delimit);
-
-			if (tarriff_group)
-				strcpy(entry.tarriff_group, tarriff_group);
-		}
-		{
-			char *tarriff_time = strtok(NULL, delimit);
-
-			if (tarriff_time)
-				strcpy(entry.tarriff_time, tarriff_time);
+			default:
+				rte_exit(EXIT_FAILURE, "Unexpected ADC TYPE : %d\n",
+						tmp_adc.sel_type);
 		}
 
-		entry.precedence = 0x1ffffffe;
-		memset(entry.rule_name, 0, sizeof(entry.rule_name));
-		/* Add default rule */
+		entry = rte_cfgfile_get_entry(file, sectionname,
+				"GATE_STATUS");
+
+		if (entry)
+			tmp_adc.gate_status = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname,
+				"RATING_GROUP");
+
+		if (entry) {
+			strncpy(buff, entry, sizeof(buff));
+			tmp_adc.rating_group = name_to_num(buff);
+		}
+
+		entry = rte_cfgfile_get_entry(file, sectionname,
+				"SERVICE_ID");
+
+		if (entry) {
+			strncpy(buff, entry, sizeof(buff));
+			tmp_adc.service_id = name_to_num(buff);
+
+			if (!strcmp(buff, "CIPA"))
+				puts("CIPA Rule");
+		}
+
+		entry = rte_cfgfile_get_entry(file, sectionname,
+				"PRECEDENCE");
+
+		if (entry)
+			tmp_adc.precedence = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname,
+				"MTR_PROFILE_INDEX");
+
+		if (entry)
+			tmp_adc.mtr_profile_index = atoi(entry);
+
+		entry = rte_cfgfile_get_entry(file, sectionname,
+				"SPONSOR_ID");
+
+		if (entry)
+			strncpy(tmp_adc.sponsor_id, entry,
+					sizeof(tmp_adc.sponsor_id));
+
+		entry = rte_cfgfile_get_entry(file, sectionname,
+				"TARRIFF_GROUP");
+
+		if (entry)
+			strncpy(tmp_adc.tarriff_group, entry,
+					sizeof(tmp_adc.tarriff_group));
+
+		entry = rte_cfgfile_get_entry(file, sectionname,
+				"TARRIFF_TIME");
+
+		if (entry)
+			strncpy(tmp_adc.tarriff_time, entry,
+					sizeof(tmp_adc.tarriff_time));
+
+		memset(tmp_adc.rule_name, 0, sizeof(tmp_adc.rule_name));
+		/* Add Default rule */
 		adc_rule_id[rule_id - 1] = rule_id;
-		entry.rule_id = rule_id++;
-		if (adc_entry_add(dp_id, entry) < 0)
+		tmp_adc.rule_id = rule_id++;
+		if (adc_entry_add(dp_id, tmp_adc) < 0)
 			rte_exit(EXIT_FAILURE, "ADC entry add fail !!!");
-		print_adc_rule(&entry);
+		print_adc_rule(tmp_adc);
+
 	}
 	num_adc_rules = rule_id - 1;
-	rte_free(buffer);
+
 }
+

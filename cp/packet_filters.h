@@ -33,6 +33,8 @@
 #define FIRST_FILTER_ID 1
 
 #define STATIC_PCC_FILE "../config/static_pcc.cfg"
+#define PCC_RULE_FILE "../config/pcc_rules.cfg"
+#define SDF_RULE_FILE "../config/sdf_rules.cfg"
 #define ADC_RULE_FILE "../config/adc_rules.cfg"
 
 extern uint16_t ulambr_idx;
@@ -63,11 +65,10 @@ typedef struct packet_filter_t {
 extern const pkt_fltr catch_all;
 
 void
-push_all_packet_filters(void);
-
-void
 push_packet_filter(uint16_t index);
 
+void
+push_sdf_rules(uint16_t index);
 
 /**
  * Installs a packet filter in the CP & DP.
