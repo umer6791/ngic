@@ -36,8 +36,12 @@ struct parse_create_session_request_t {
 	gtpv2c_ie *charging_characteristics_ie;
 	gtpv2c_ie *bearer_qos_ie;
 	gtpv2c_ie *bearer_tft_ie;
+	gtpv2c_ie *s11u_mme_fteid;
 	gtpv2c_ie *indication_ie;
 };
+
+extern uint32_t num_adc_rules;
+extern uint32_t adc_rule_id[];
 
 /**
  * parses gtpv2c message and populates parse_create_session_request_t structure
@@ -84,9 +88,13 @@ parse_create_session_request(gtpv2c_header *gtpv2c_rx,
 						current_group_ie->instance ==
 							IE_INSTANCE_ZERO) {
 					csr->bearer_tft_ie = current_group_ie;
+				} else if (current_group_ie->type == IE_FTEID &&
+						current_group_ie->instance ==
+						IE_INSTANCE_ZERO) {
+					csr->s11u_mme_fteid = current_group_ie;
 				}
-
 			}
+
 		} else if (current_ie->type == IE_FTEID &&
 				current_ie->instance == IE_INSTANCE_ONE) {
 			csr->pgw_s5s8_gtpc_fteid =
@@ -200,10 +208,24 @@ set_create_session_response(gtpv2c_header *gtpv2c_tx,
 				    bearer->eps_bearer_id));
 		add_grouped_ie_length(bearer_context_group,
 		    set_cause_accepted_ie(gtpv2c_tx, IE_INSTANCE_ZERO));
-		add_grouped_ie_length(bearer_context_group,
+
+		if (bearer->s11u_mme_gtpu_teid) {
+			printf("S11U Detect- set_create_session_response-"
+					"\n\tbearer->s11u_mme_gtpu_teid= %X;"
+					"\n\tGTPV2C_IFTYPE_S11U_MME_GTPU= %X\n",
+					bearer->s11u_mme_gtpu_teid,
+					GTPV2C_IFTYPE_S11U_SGW_GTPU);
+			add_grouped_ie_length(bearer_context_group,
+		    set_ipv4_fteid_ie(gtpv2c_tx, GTPV2C_IFTYPE_S11U_SGW_GTPU,
+				    IE_INSTANCE_SIX, s1u_sgw_ip,
+				    bearer->s1u_sgw_gtpu_teid));
+		} else {
+			add_grouped_ie_length(bearer_context_group,
 		    set_ipv4_fteid_ie(gtpv2c_tx, GTPV2C_IFTYPE_S1U_SGW_GTPU,
 				    IE_INSTANCE_ZERO, s1u_sgw_ip,
 				    bearer->s1u_sgw_gtpu_teid));
+		}
+
 		add_grouped_ie_length(bearer_context_group,
 		    set_ipv4_fteid_ie(gtpv2c_tx, GTPV2C_IFTYPE_S5S8_PGW_GTPU,
 				    IE_INSTANCE_TWO, pdn->s5s8_pgw_gtpc_ipv4,
@@ -299,6 +321,16 @@ process_create_session_request(gtpv2c_header *gtpv2c_rx,
 
 		bearer->s1u_sgw_gtpu_ipv4 = s1u_sgw_ip;
 		set_s1u_sgw_gtpu_teid(bearer, context);
+
+		if (create_session_request.s11u_mme_fteid) {
+			bearer->s11u_mme_gtpu_ipv4 =
+			    IE_TYPE_PTR_FROM_GTPV2C_IE(fteid_ie,
+			    create_session_request.s11u_mme_fteid)->ip_u.ipv4;
+			bearer->s11u_mme_gtpu_teid =
+				IE_TYPE_PTR_FROM_GTPV2C_IE(fteid_ie,
+			    create_session_request.s11u_mme_fteid)->
+			    fteid_ie_hdr.teid_or_gre;
+		}
 	}
 
 	set_create_session_response(gtpv2c_tx, gtpv2c_rx->teid_u.has_teid.seq,
@@ -314,13 +346,28 @@ process_create_session_request(gtpv2c_header *gtpv2c_rx,
 	session.ul_s1_info.sgw_addr.iptype = IPTYPE_IPV4;
 	session.ul_s1_info.sgw_addr.u.ipv4_addr =
 			ntohl(bearer->s1u_sgw_gtpu_ipv4.s_addr);
-	session.ul_s1_info.enb_addr.iptype = IPTYPE_IPV4;
-	session.ul_s1_info.enb_addr.u.ipv4_addr =
-			ntohl(bearer->s1u_enb_gtpu_ipv4.s_addr);
-	session.dl_s1_info.enb_teid = ntohl(bearer->s1u_enb_gtpu_teid);
-	session.dl_s1_info.enb_addr.iptype = IPTYPE_IPV4;
-	session.dl_s1_info.enb_addr.u.ipv4_addr =
-			ntohl(bearer->s1u_enb_gtpu_ipv4.s_addr);
+
+	if (bearer->s11u_mme_gtpu_teid) {
+		/* If CIOT: [enb_addr,enb_teid] =
+		 * s11u[mme_gtpu_addr, mme_gtpu_teid]
+		 */
+		session.ul_s1_info.enb_addr.iptype = IPTYPE_IPV4;
+		session.ul_s1_info.enb_addr.u.ipv4_addr =
+				ntohl(bearer->s11u_mme_gtpu_ipv4.s_addr);
+		session.dl_s1_info.enb_teid = ntohl(bearer->s11u_mme_gtpu_teid);
+		session.dl_s1_info.enb_addr.iptype = IPTYPE_IPV4;
+		session.dl_s1_info.enb_addr.u.ipv4_addr =
+				ntohl(bearer->s11u_mme_gtpu_ipv4.s_addr);
+	} else {
+		session.ul_s1_info.enb_addr.iptype = IPTYPE_IPV4;
+		session.ul_s1_info.enb_addr.u.ipv4_addr =
+				ntohl(bearer->s1u_enb_gtpu_ipv4.s_addr);
+		session.dl_s1_info.enb_teid = ntohl(bearer->s1u_enb_gtpu_teid);
+		session.dl_s1_info.enb_addr.iptype = IPTYPE_IPV4;
+		session.dl_s1_info.enb_addr.u.ipv4_addr =
+				ntohl(bearer->s1u_enb_gtpu_ipv4.s_addr);
+	}
+
 	session.dl_s1_info.sgw_addr.iptype = IPTYPE_IPV4;
 	session.dl_s1_info.sgw_addr.u.ipv4_addr =
 			ntohl(bearer->s1u_sgw_gtpu_ipv4.s_addr);
@@ -342,5 +389,17 @@ process_create_session_request(gtpv2c_header *gtpv2c_rx,
 
 	if (session_create(dp_id, session) < 0)
 		rte_exit(EXIT_FAILURE,"Bearer Session create fail !!!");
+	if (bearer->s11u_mme_gtpu_teid) {
+		session.num_dl_pcc_rules = 1;
+		session.dl_pcc_rule_id[0] = FIRST_FILTER_ID;
+
+		session.num_adc_rules = num_adc_rules;
+		uint32_t i;
+		for (i = 0; i < num_adc_rules; ++i)
+			        session.adc_rule_id[i] = adc_rule_id[i];
+
+		if (session_modify(dp_id, session) < 0)
+			rte_exit(EXIT_FAILURE, "Bearer Session create CIOT implicit modify fail !!!");
+	}
 	return 0;
 }

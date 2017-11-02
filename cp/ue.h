@@ -130,6 +130,9 @@ typedef struct eps_bearer_t {
 	struct in_addr s1u_enb_gtpu_ipv4;
 	uint32_t s1u_enb_gtpu_teid;
 
+	struct in_addr s11u_mme_gtpu_ipv4;
+	uint32_t s11u_mme_gtpu_teid;
+
 	struct pdn_connection_t *pdn;
 
 	int packet_filter_map[MAX_FILTERS_PER_UE];

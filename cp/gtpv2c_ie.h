@@ -154,6 +154,8 @@ enum ie_instance {
 	IE_INSTANCE_TWO = 2,
 	IE_INSTANCE_THREE = 3,
 	IE_INSTANCE_FOUR = 4,
+	IE_INSTANCE_FIVE = 5,
+	IE_INSTANCE_SIX = 6
 };
 
 #pragma pack(1)
@@ -458,8 +460,7 @@ typedef struct bearer_tft_ie_t traffic_aggregation_description;
  */
 typedef struct fteid_ie_t {
 	struct fteid_ie_hdr_t {
-		uint8_t interface_type :5;
-		uint8_t spare :1;
+		uint8_t interface_type :6;
 		uint8_t v6 :1;
 		uint8_t v4 :1;
 		uint32_t teid_or_gre;

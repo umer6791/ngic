@@ -202,7 +202,6 @@ set_ipv4_fteid_ie(gtpv2c_header *header,
 
 	fteid_ie_ptr->fteid_ie_hdr.v4 = 1;
 	fteid_ie_ptr->fteid_ie_hdr.v6 = 0;
-	fteid_ie_ptr->fteid_ie_hdr.spare = 0;
 	fteid_ie_ptr->fteid_ie_hdr.interface_type = interface;
 	fteid_ie_ptr->fteid_ie_hdr.teid_or_gre = teid;
 	fteid_ie_ptr->ip_u.ipv4 = ipv4;

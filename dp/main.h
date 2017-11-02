@@ -182,6 +182,8 @@ struct app_params {
 	uint32_t sgi_port;			/* port no. to act as sgi */
 	uint32_t log_level;			/* log level default - INFO,
 						 * 1 - DEBUG	 */
+	uint32_t numa_on;			/* Numa socket default 0 - disable,
+						 * 1 - enable	 */
 	struct ether_addr s1u_ether_addr;	/* s1u mac addr */
 	struct ether_addr sgi_ether_addr;	/* sgi mac addr */
 };

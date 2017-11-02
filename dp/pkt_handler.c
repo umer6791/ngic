@@ -96,8 +96,6 @@ s1u_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	struct dp_sdf_per_bearer_info *sdf_info[MAX_BURST_SZ];
 	void *adc_ue_info[MAX_BURST_SZ];
 	uint32_t *pcc_rule_id;
-	uint32_t *adc_rule_a;
-	uint32_t adc_rule_b[MAX_BURST_SZ];
 	uint64_t pkts_mask;
 	uint64_t adc_pkts_mask = 0;
 
@@ -117,6 +115,9 @@ s1u_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	}
 
 #ifdef ADC_UPFRONT
+	{
+	uint32_t *adc_rule_a;
+	uint32_t adc_rule_b[MAX_BURST_SZ];
 	/* ADC table lookup*/
 	adc_rule_a = adc_ul_lookup(pkts, n);
 
@@ -131,7 +132,7 @@ s1u_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	adc_ue_info_get(pkts, n, adc_rule_a, &adc_ue_info[0], UL_FLOW);
 
 	adc_gating(adc_rule_a, &adc_ue_info[0], n, &adc_pkts_mask, &pkts_mask);
-
+	}
 #endif /*ADC_UPFRONT*/
 
 	/* get per SDF, bearer session info*/
@@ -188,8 +189,6 @@ sgi_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	void *adc_ue_info[MAX_BURST_SZ];
 	struct dp_session_info *si[MAX_BURST_SZ];
 	uint32_t *pcc_rule_id;
-	uint32_t *adc_rule_a;
-	uint32_t adc_rule_b[MAX_BURST_SZ];
 	uint64_t pkts_mask, pkts_queue_mask = 0;
 	uint64_t adc_pkts_mask = 0;
 
@@ -206,6 +205,9 @@ sgi_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	}
 
 #ifdef ADC_UPFRONT
+	{
+	uint32_t *adc_rule_a;
+	uint32_t adc_rule_b[MAX_BURST_SZ];
 	/* ADC table lookup*/
 	adc_rule_a = adc_dl_lookup(pkts, n);
 
@@ -224,7 +226,7 @@ sgi_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	adc_ue_info_get(pkts, n, adc_rule_a, &adc_ue_info[0], DL_FLOW);
 
 	adc_gating(adc_rule_a, &adc_ue_info[0], n, &adc_pkts_mask, &pkts_mask);
-
+	}
 #endif	/* ADC_UPFRONT */
 
 	/* get per SDF, bearer session info*/
