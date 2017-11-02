@@ -293,8 +293,7 @@ static struct{
 } parm_config;
 
 const char cb_port_delim[] = ":";
-/*static int numa_on = 1;*/	/**< NUMA is enabled by default. */
-static int numa_on = 0;	/**< NUMA is disable by default. */
+extern struct app_params app;
 
 enum acl_cfg_tbl{
 	SDF_ACTIVE,
@@ -427,7 +426,8 @@ static void add_single_rule(const void *nodep, const VISIT which, const int dept
 	 * Check numa socket enable or disable based on
 	 * get or set socketid.
 	 */
-	int socketid = numa_on?rte_socket_id():0;
+	int socketid = app.numa_on?rte_socket_id():0;
+
 	struct acl_config *pacl_config = &acl_config[config_tbl];
 	struct rte_acl_ctx *context = pacl_config->acx_ipv4[socketid];
 #pragma GCC diagnostic push  /* require GCC 4.6 */
@@ -1177,7 +1177,7 @@ acl_config_init(struct acl_config *acl_config,
 	memset(acl_config, 0, sizeof(struct acl_config));
 
 	/* Check sockets a context should be created on */
-	if (!numa_on)
+	if (!app.numa_on)
 		acl_config->mapped[0] = 1;
 	else {
 		for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
@@ -1231,7 +1231,7 @@ reset_and_build_rules(enum acl_cfg_tbl type)
 	 * Check numa socket enable or disable based on
 	 * get or set socketid.
 	 */
-	int socketid = numa_on?rte_socket_id():0;
+	int socketid = app.numa_on?rte_socket_id():0;
 	struct rte_acl_param acl_param;
 	char name[MAX_LEN];
 	struct acl_config *pacl_config = &acl_config[type];

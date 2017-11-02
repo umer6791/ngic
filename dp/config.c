@@ -132,6 +132,11 @@ static inline void dp_print_usage(void)
 			DESCRIPTION_WIDTH,
 			"CDR Master file.");
 
+	printf("| %-*s | %-*s | %-*s |\n",
+			ARGUMENT_WIDTH,    "--numa",
+			PRESENCE_WIDTH,    "MANDATORY",
+			DESCRIPTION_WIDTH,
+			"numa 1- enable, 0- disable.");
 	printf("+-------------------+-------------+"
 			"--------------------------------------------+\n");
 	printf("\n\nExample Usage:\n"
@@ -140,7 +145,7 @@ static inline void dp_print_usage(void)
 			"--sgi_ip 13.1.1.93 --sgi_mac 90:e2:ba:58:c8:65\n"
 			"--s1uc 0 --sgic 1\n"
 			"--bal 2 --mct 3 --iface 4 --stats 3\n"
-			"--num_workers 2 --log 1\n");
+			"--num_workers 2 --numa 0 --log 1\n");
 	exit(0);
 }
 
@@ -243,6 +248,7 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 		{"stats", required_argument, 0, 't'},
 		{"cdr_path", required_argument, 0, 'a'},
 		{"master_cdr", required_argument, 0, 'e'},
+		{"numa", required_argument, 0, 'f'},
 		{NULL, 0, 0, 0}
 	};
 
@@ -421,12 +427,19 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 				" Ignoring stats core assignment");
 #endif
 			break;
+
 		case 'a':
 			set_cdr_path(optarg);
 			break;
+
 		case 'e':
 			master_cdr_file = optarg;
 			break;
+
+		case 'f':
+			app->numa_on = atoi(optarg);
+			break;
+
 		default:
 			dp_print_usage();
 			return -1;

@@ -24,7 +24,8 @@ ARGS="-c 0xfff800000 -n 4 --socket-mem 0,$MEMORY \
             --file-prefix dp -w $PORT0 -w $PORT1 -- \
             --s1u_ip $S1U_IP --s1u_mac $S1U_MAC \
             --sgi_ip $SGI_IP --sgi_mac $SGI_MAC \
-            --num_workers $NUM_WORKER --log $LOG_LEVEL"
+            --num_workers $NUM_WORKER --log $LOG_LEVEL\
+			--numa $NUMA"
 
 if [ -n "${S1U_GW_IP}" ]; then
 	ARGS="$ARGS --s1u_gw_ip $S1U_GW_IP"
