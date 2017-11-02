@@ -293,9 +293,10 @@ static void print_adc_val(struct adc_rules *adc)
 		RTE_LOG(DEBUG, DP, " ---> Rating Group :%u\n",
 			adc->rating_group);
 		RTE_LOG(DEBUG, DP, " ---> Service id :%u\n", adc->service_id);
-		RTE_LOG(DEBUG, DP, " ---> Sponsor id :%s\n", adc->sponsor_id);
-		RTE_LOG(DEBUG, DP, " ---> Meter profile index :%u\n",
+		RTE_LOG(DEBUG, DP, " ---> Precedence :%u\n", adc->precedence);
+		RTE_LOG(DEBUG, DP, " ---> Meter profile index :%d\n",
 				adc->mtr_profile_index);
+		RTE_LOG(DEBUG, DP, " ---> Sponsor id :%s\n", adc->sponsor_id);
 		RTE_LOG(DEBUG, DP, "=========================================\n\n");
 	}
 }
@@ -323,6 +324,8 @@ static void print_pcc_val(struct pcc_rules *pcc)
 			pcc->rule_status);
 		RTE_LOG(DEBUG, DP, " ---> gate_status :%d\n",
 			pcc->gate_status);
+		RTE_LOG(DEBUG, DP, " ---> session_cont :%d\n",
+			pcc->session_cont);
 		RTE_LOG(DEBUG, DP, " ---> monitoring_key :%d\n",
 			pcc->monitoring_key);
 		RTE_LOG(DEBUG, DP, " ---> precedence :%d\n",
@@ -331,6 +334,8 @@ static void print_pcc_val(struct pcc_rules *pcc)
 			pcc->report_level);
 		RTE_LOG(DEBUG, DP, " ---> mute_status :%d\n",
 			pcc->mute_notify);
+		RTE_LOG(DEBUG, DP, " ---> drop_pkt_count :%ld\n",
+			pcc->drop_pkt_count);
 		RTE_LOG(DEBUG, DP, " ---> redirect_info :%d\n",
 			pcc->redirect_info.info);
 		RTE_LOG(DEBUG, DP, " ---> ul_mbr_mtr_profile_idx :%d\n",
@@ -426,11 +431,12 @@ static void parse_adc_val(char *arm, struct adc_rules *adc)
 {
 	if (arm != NULL && adc != NULL) {
 		adc->gate_status = *(uint8_t *)(arm);
-		adc->rating_group = *(uint32_t *)((arm) + 1);
+		adc->rating_group = rte_bswap32(*(uint32_t *)((arm) + 1));
 		adc->service_id = rte_bswap32(*(uint32_t *)((arm) + 5));
+		adc->precedence = rte_bswap32(*(uint32_t *)((arm) + 9));
 		adc->mtr_profile_index =
-			rte_bswap16(*(uint16_t *)(arm + 9 + *((arm))));
-		strncpy(adc->sponsor_id, (char *)((arm) + 11), MAX_LEN);
+			rte_bswap16(*(uint16_t *)(arm + 13 ));
+		strncpy(adc->sponsor_id, (char *)((arm) + 15), MAX_LEN);
 #ifdef PRINT_NEW_RULE_ENTRY
 		print_adc_val(adc);
 #endif
@@ -461,14 +467,16 @@ static int parse_adc_buf(int sel_type, char *arm, struct adc_rules *adc)
 		switch (sel_type) {
 		case DOMAIN_NAME:
 			strncpy(adc->u.domain_name, (char *)((arm)+1),
-					MAX_LEN);
+					*(uint8_t *)(arm));
 			adc->gate_status = *(uint8_t *)(arm + 1 + *(arm));
 			adc->rating_group = *(uint32_t *)(arm + 2 + *((arm)));
 			adc->service_id =
 				rte_bswap32(*(uint32_t *)(arm + 6 + *((arm))));
+			adc->precedence =
+				rte_bswap32(*(uint32_t *)(arm + 10 + *((arm))));
 			adc->mtr_profile_index =
-				rte_bswap16(*(uint16_t *)(arm + 10 + *((arm))));
-			strncpy(adc->sponsor_id, (char *)(arm + 12 + *((arm))),
+				rte_bswap16(*(uint16_t *)(arm + 14 + *((arm))));
+			strncpy(adc->sponsor_id, (char *)(arm + 16 + *((arm))),
 					MAX_LEN);
 #ifdef PRINT_NEW_RULE_ENTRY
 				print_adc_val(adc);
@@ -624,10 +632,6 @@ zmq_mbuf_process(struct zmqbuf *zmqmsgbuf_rx, int zmqmsglen)
 
 		adc->rule_id = rule_num++;
 		memset(adc->rule_name, 0, MAX_LEN);
-		/*
-		 *@param precedance value
-		 */
-		adc->precedence = 0x1ffffffe;
 
 		ret = parse_adc_buf(adc->sel_type, (((char *)(buf) + 1)), adc);
 
@@ -657,10 +661,12 @@ zmq_mbuf_process(struct zmqbuf *zmqmsgbuf_rx, int zmqmsglen)
 		pcc->rating_group = rte_bswap16(pcc_t->rating_group);
 		pcc->rule_status = pcc_t->rule_status;
 		pcc->gate_status = pcc_t->gate_status;
+		pcc->session_cont = pcc_t->session_cont;
 		pcc->monitoring_key = rte_bswap32(pcc_t->monitoring_key);
 		pcc->precedence = rte_bswap32(pcc_t->precedence);
 		pcc->report_level = pcc_t->level_of_report;
 		pcc->mute_notify = pcc_t->mute_status;
+		pcc->drop_pkt_count = rte_bswap64(pcc_t->drop_pkt_count);
 		pcc->qos.ul_mtr_profile_index = rte_bswap16(pcc_t->ul_mtr_profile_idx);
 		pcc->qos.dl_mtr_profile_index = rte_bswap16(pcc_t->dl_mtr_profile_idx);
 		pcc->redirect_info.info = pcc_t->redirect_info;

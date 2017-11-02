@@ -81,7 +81,7 @@ setup_env()
 	if [[ $VERSION_ID != "16.04" ]] ; then
 		echo "WARNING: It is recommended to use Ubuntu 16.04..Your version is "$VERSION_ID
 		echo "The libboost 1.58 dependency is not met by official Ubuntu PPA. Either attempt"
-		echo "to find/compile boost 1.58 or upgrade your distribution by performing 'sudo do-release-upgrade'"  
+		echo "to find/compile boost 1.58 or upgrade your distribution by performing 'sudo do-release-upgrade'"
 	else
 		echo "Ubuntu 16.04 OS requirement met..."
 	fi
@@ -333,8 +333,14 @@ setup_hugepages()
 		echo "MEMORY (MB) : " $memory
 		echo "Number of pages : " $Pages
 	fi
+
+	if [ ! "`grep nr_hugepages /etc/sysctl.conf`" ]; then
+		echo "vm.nr_hugepages=$Pages" | sudo tee /etc/sysctl.conf
+	else
 		echo "vm.nr_hugepages=$Pages"
 		sudo sed -i '/^vm.nr_hugepages=/s/=.*/='$Pages'/' /etc/sysctl.conf
+	fi
+
 	sudo sysctl -p
 
 	sudo service procps start

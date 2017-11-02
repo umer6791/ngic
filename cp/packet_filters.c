@@ -16,8 +16,6 @@
 
 #include <errno.h>
 #include <inttypes.h>
-#include <string.h>
-#include <ctype.h>
 
 #include <rte_malloc.h>
 #include <rte_lcore.h>
@@ -59,6 +57,9 @@ struct pcc_rules *pcc_filters[PCC_TABLE_SIZE] = {
 		[0] = NULL, /* index = 0 is invalid */
 };
 
+pkt_fltr *sdf_filters[SDF_FILTER_TABLE_SIZE] = {
+		[0] = NULL, /* index = 0 is invalid */
+};
 packet_filter *packet_filters[SDF_FILTER_TABLE_SIZE] = {
 		[0] = NULL, /* index = 0 is invalid */
 };
@@ -132,52 +133,51 @@ void
 push_sdf_rules(uint16_t index)
 {
 	struct dp_id dp_id = { .id = DPN_ID };
-	pkt_fltr filter = packet_filters[index]->pkt_fltr;
 
 	char local_ip[INET_ADDRSTRLEN];
 	char remote_ip[INET_ADDRSTRLEN];
 
 	snprintf(local_ip, sizeof(local_ip), "%s",
-	    inet_ntoa(filter.local_ip_addr));
+	    inet_ntoa(sdf_filters[index]->local_ip_addr));
 	snprintf(remote_ip, sizeof(remote_ip), "%s",
-	    inet_ntoa(filter.remote_ip_addr));
+	    inet_ntoa(sdf_filters[index]->remote_ip_addr));
 
 	struct pkt_filter pktf = {
 			.pcc_rule_id = index,
-			.precedence = filter.precedence,
+			.precedence = sdf_filters[index]->precedence,
 	};
 
-	if (filter.direction & TFT_DIRECTION_DOWNLINK_ONLY) {
+	if (sdf_filters[index]->direction & TFT_DIRECTION_DOWNLINK_ONLY) {
 		snprintf(pktf.u.rule_str, MAX_LEN, "%s/%"PRIu8" %s/%"PRIu8
 			" %"PRIu16" : %"PRIu16" %"PRIu16" : %"PRIu16
 			" 0x%"PRIx8"/0x%"PRIx8"\n",
-			remote_ip, filter.remote_ip_mask, local_ip,
-			filter.local_ip_mask,
-			ntohs(filter.remote_port_low),
-			ntohs(filter.remote_port_high),
-			ntohs(filter.local_port_low),
-			ntohs(filter.local_port_high),
-			filter.proto, filter.proto_mask);
-		if (filter.direction ==
+			remote_ip, sdf_filters[index]->remote_ip_mask, local_ip,
+			sdf_filters[index]->local_ip_mask,
+			ntohs(sdf_filters[index]->remote_port_low),
+			ntohs(sdf_filters[index]->remote_port_high),
+			ntohs(sdf_filters[index]->local_port_low),
+			ntohs(sdf_filters[index]->local_port_high),
+			sdf_filters[index]->proto, sdf_filters[index]->proto_mask);
+		if (sdf_filters[index]->direction ==
 				TFT_DIRECTION_BIDIRECTIONAL)
 			fprintf(stderr, "Ignoring uplink portion of packet "
 					"filter for now\n");
-	} else if (filter.direction & TFT_DIRECTION_UPLINK_ONLY) {
+	} else if (sdf_filters[index]->direction & TFT_DIRECTION_UPLINK_ONLY) {
 		snprintf(pktf.u.rule_str, MAX_LEN, "%s/%"PRIu8" %s/%"PRIu8" %"
 			PRIu16" : %"PRIu16" %"PRIu16" : %"PRIu16" 0x%"
 			PRIx8"/0x%"PRIx8"\n",
-			local_ip, filter.local_ip_mask, remote_ip,
-			filter.remote_ip_mask,
-			ntohs(filter.local_port_low),
-			ntohs(filter.local_port_high),
-			ntohs(filter.remote_port_low),
-			ntohs(filter.remote_port_high),
-			filter.proto, filter.proto_mask);
+			local_ip, sdf_filters[index]->local_ip_mask, remote_ip,
+			sdf_filters[index]->remote_ip_mask,
+			ntohs(sdf_filters[index]->local_port_low),
+			ntohs(sdf_filters[index]->local_port_high),
+			ntohs(sdf_filters[index]->remote_port_low),
+			ntohs(sdf_filters[index]->remote_port_high),
+			sdf_filters[index]->proto, sdf_filters[index]->proto_mask);
 	}
 
 	printf("Installing %s pkt_filter #%"PRIu16" p-%"PRIu8": %s",
-	    direction_str[filter.direction], index, filter.precedence,
-	    pktf.u.rule_str);
+	    direction_str[sdf_filters[index]->direction], index,
+		sdf_filters[index]->precedence, pktf.u.rule_str);
 
 	if (sdf_filter_entry_add(dp_id, pktf) < 0)
 		rte_exit(EXIT_FAILURE,"SDF filter entry add fail !!!");
@@ -192,12 +192,12 @@ push_sdf_rules(uint16_t index)
 *  \- < 0 - on error
 */
 static int
-install_sdf_rules(const packet_filter *new_packet_filter)
+install_sdf_rules(const pkt_fltr *new_packet_filter)
 {
 	if (num_sdf_filters >= SDF_FILTER_TABLE_SIZE)
 		return -ENOMEM;
 
-	packet_filter *filter = rte_zmalloc_socket(NULL, sizeof(packet_filter),
+	pkt_fltr *filter = rte_zmalloc_socket(NULL, sizeof(pkt_fltr),
 	    RTE_CACHE_LINE_SIZE, rte_socket_id());
 	if (filter == NULL) {
 		fprintf(stderr, "Failure to allocate dedicated packet filter "
@@ -208,11 +208,11 @@ install_sdf_rules(const packet_filter *new_packet_filter)
 		return -ENOMEM;
 	}
 
-	memcpy(filter, new_packet_filter, sizeof(packet_filter));
+	memcpy(filter, new_packet_filter, sizeof(pkt_fltr));
 	uint16_t index = num_sdf_filters;
 
 	num_sdf_filters++;
-	packet_filters[index] = filter;
+	sdf_filters[index] = filter;
 
 #ifdef SDN_ODL_BUILD
 	if (dpn_id)
@@ -306,13 +306,13 @@ init_mtr_profile(void)
 	unsigned no_of_idx = 0;
 	unsigned i = 0;
 	struct rte_cfgfile *file =
-			rte_cfgfile_load("../config/meter_profile.cfg", 0);
+			rte_cfgfile_load(METER_PROFILE_FILE, 0);
 	const char *entry;
 	struct dp_id dp_id = { .id = DPN_ID };
 
 	if (file == NULL)
 		rte_panic("Cannot load configuration file %s\n",
-				STATIC_PCC_FILE);
+				METER_PROFILE_FILE);
 
 	entry = rte_cfgfile_get_entry(file, "GLOBAL", "NUM_OF_IDX");
 	if (!entry)
@@ -492,22 +492,7 @@ init_sdf_rules(void)
 		if (entry)
 			pf.local_port_high = htons((uint16_t) atoi(entry));
 
-		packet_filter pkt_filter;
-		pkt_filter.pkt_fltr = pf;
-		entry = rte_cfgfile_get_entry(file,
-					sectionname, "UL_MBR_MTR_PROFILE_IDX");
-		if (!entry)
-			rte_panic("Invalid MTR_PROFILE_IDX configuration\n");
-
-		pkt_filter.ul_mtr_idx = atoi(entry);
-		entry = rte_cfgfile_get_entry(file,
-					sectionname, "DL_MBR_MTR_PROFILE_IDX");
-
-		if (!entry)
-			rte_panic("Invalid MTR_PROFILE_IDX configuration\n");
-		pkt_filter.dl_mtr_idx = atoi(entry);
-
-		ret = install_sdf_rules(&pkt_filter);
+		ret = install_sdf_rules(&pf);
 		if (ret < 0) {
 			rte_panic("Failure to install sdf rules: "
 					"%s (%s:%d)\n",

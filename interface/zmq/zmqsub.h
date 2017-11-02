@@ -160,10 +160,12 @@ struct zmqbuf {
 			uint16_t rating_group;
 			uint8_t rule_status;
 			uint8_t gate_status;
+			uint8_t session_cont;
 			uint32_t monitoring_key;
 			uint32_t precedence;
 			uint8_t level_of_report;
 			uint8_t mute_status;
+			uint64_t drop_pkt_count;
 			uint16_t ul_mtr_profile_idx;
 			uint16_t dl_mtr_profile_idx;
 			uint8_t redirect_info;
