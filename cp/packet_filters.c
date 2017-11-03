@@ -373,19 +373,6 @@ init_sdf_rules(void)
 		rte_panic("Invalid sdf configuration file format\n");
 
 	num_sdf_rules = atoi(entry);
-	entry = rte_cfgfile_get_entry(file,
-				"GLOBAL", "UL_AMBR_MTR_PROFILE_IDX");
-
-	if (!entry)
-		rte_panic("Invalid AMBR configuration file format\n");
-	ulambr_idx = atoi(entry);
-
-	entry = rte_cfgfile_get_entry(file,
-				"GLOBAL", "DL_AMBR_MTR_PROFILE_IDX");
-
-	if (!entry)
-		rte_panic("Invalid AMBR configuration file format\n");
-	dlambr_idx = atoi(entry);
 
 	for (i = 0; i <= num_sdf_rules; ++i) {
 		char sectionname[64] = {0};
