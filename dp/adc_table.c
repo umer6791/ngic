@@ -67,11 +67,6 @@ static void adc_print_rule(const void *nodep, const VISIT which, const int depth
 	case postorder:
 		printf("Depth: %d, Rule ID: %d\n",
 				depth, r->rule_id);
-		printf("Rule name: %s, Sponsor id: %s\n",
-				r->rule_name, r->sponsor_id);
-		printf("Meter profile index: %u, Gate_status: %s\n",
-				r->mtr_profile_index, r->gate_status ?
-				"Open" : "Close");
 		break;
 	default:
 		break;
@@ -191,7 +186,7 @@ dp_adc_entry_add(struct dp_id dp_id, struct adc_rules *adc_filter_entry)
 		uint32_t ipv4 = adc_filter_entry->u.domain_ip.u.ipv4_addr;
 
 		msg_payload.pcc_rule_id = adc_filter_entry->rule_id;
-		msg_payload.precedence = adc_filter_entry->precedence;
+		//msg_payload.precedence = adc_filter_entry->precedence;
 		sprintf(msg_payload.u.rule_str, "0.0.0.0/0 "IPV4_ADDR"/32 0 : 65535 0 : 65535 0x0/0x0 \n",
 				IPV4_ADDR_HOST_FORMAT(ipv4));
 		dp_adc_filter_entry_add(dp_id, &msg_payload);
@@ -199,9 +194,8 @@ dp_adc_entry_add(struct dp_id dp_id, struct adc_rules *adc_filter_entry)
 				IPV4_ADDR_HOST_FORMAT(ipv4));
 		dp_adc_filter_entry_add(dp_id, &msg_payload);
 
-		RTE_LOG(INFO, DP, "ADC_TBL ADD: rule_id:%d, prio:%x,domain_ip:"\
+		RTE_LOG(INFO, DP, "ADC_TBL ADD: rule_id:%d, domain_ip:"\
 				IPV4_ADDR"\n", adc_filter_entry->rule_id,
-				adc_filter_entry->precedence,
 				IPV4_ADDR_HOST_FORMAT(\
 					adc_filter_entry->u.domain_ip.u.ipv4_addr));
 
@@ -211,7 +205,7 @@ dp_adc_entry_add(struct dp_id dp_id, struct adc_rules *adc_filter_entry)
 		uint32_t prefix = adc_filter_entry->u.domain_prefix.prefix;
 
 		msg_payload.pcc_rule_id = adc_filter_entry->rule_id;
-		msg_payload.precedence = adc_filter_entry->precedence;
+		//msg_payload.precedence = adc_filter_entry->precedence;
 		sprintf(msg_payload.u.rule_str, "0.0.0.0/0 "IPV4_ADDR"/%u 0 : 65535 0 : 65535 0x0/0x0 \n",
 				IPV4_ADDR_HOST_FORMAT(ipv4), prefix);
 		dp_adc_filter_entry_add(dp_id, &msg_payload);
@@ -219,9 +213,9 @@ dp_adc_entry_add(struct dp_id dp_id, struct adc_rules *adc_filter_entry)
 				IPV4_ADDR_HOST_FORMAT(ipv4), prefix);
 		dp_adc_filter_entry_add(dp_id, &msg_payload);
 
-		RTE_LOG(INFO, DP, "ADC_TBL ADD: rule_id:%d, prio:%x, domain_ip:"\
+		RTE_LOG(INFO, DP, "ADC_TBL ADD: rule_id:%d, domain_ip:"\
 				IPV4_ADDR"\n",
-				adc_filter_entry->rule_id, adc_filter_entry->precedence,
+				adc_filter_entry->rule_id,
 				IPV4_ADDR_HOST_FORMAT(\
 					adc_filter_entry->u.domain_prefix.ip_addr.u.ipv4_addr));
 
@@ -231,14 +225,9 @@ dp_adc_entry_add(struct dp_id dp_id, struct adc_rules *adc_filter_entry)
 		ret = epc_sponsdn_dn_add_single(adc_filter_entry->u.domain_name, adc_filter_entry->rule_id);
 		if (ret)
 			RTE_LOG(DEBUG, DP, "failed to add DN error code %d\n", ret);
-
-		RTE_LOG(INFO, DP, "Spons DN ADD: rule_id:%d, prio:%x,domain_name:%s\n",
-				adc_filter_entry->rule_id, adc_filter_entry->precedence,
-				adc_filter_entry->u.domain_name);
+		RTE_LOG(INFO, DP, "Spons DN ADD: rule_id:%d, domain_name:%s\n",
+				adc_filter_entry->rule_id, adc_filter_entry->u.domain_name);
 	}
-
-	RTE_LOG(DEBUG, DP, "gate_status:%s\n",
-		(adc_filter_entry->gate_status == OPEN)?"OPEN":"CLOSED");
 	return 0;
 }
 

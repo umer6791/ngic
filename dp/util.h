@@ -32,7 +32,11 @@
 /**
  * gtpu header size.
  */
+#ifdef GTPU_HDR_SEQNB
+#define GPDU_HDR_SIZE		(8+4)
+#else
 #define GPDU_HDR_SIZE		8
+#endif	/* GTPU_HDR_SEQNB */
 
 /**
  * ipv4 header size.

@@ -157,18 +157,19 @@ struct zmqbuf {
 		struct pcc_rules_t {
 			uint8_t metering_method;
 			uint8_t charging_mode;
-			uint16_t rating_group;
+			uint32_t rating_group;
 			uint8_t rule_status;
 			uint8_t gate_status;
-			uint8_t session_cont;
 			uint32_t monitoring_key;
 			uint32_t precedence;
 			uint8_t level_of_report;
 			uint8_t mute_status;
-			uint64_t drop_pkt_count;
 			uint16_t ul_mtr_profile_idx;
 			uint16_t dl_mtr_profile_idx;
 			uint8_t redirect_info;
+			uint8_t session_cont;
+			uint64_t drop_pkt_count;
+			uint32_t adc_idx;
 		} pcc_rules_m;
 		struct mtr_entry_t {
 			uint16_t meter_profile_index;
@@ -179,7 +180,6 @@ struct zmqbuf {
 		} mtr_entry_m;
 		struct sdf_entry_t {
 			uint32_t pcc_rule_id;
-			uint32_t precedence;
 			uint8_t rule_type;
 		} sdf_entry_m;
 

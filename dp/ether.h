@@ -46,11 +46,15 @@ static inline struct ether_hdr *get_mtoeth(struct rte_mbuf *m)
  *
  * @param m
  *	mbuf pointer
- *
+ * @param portid
+ *	port id
+ * @param sess_info
+ *	pointer to session bear info
  * @return
  *	- 0  on success
  *	- -1 on failure (ARP lookup fail)
  */
-int construct_ether_hdr(struct rte_mbuf *m, uint8_t portid);
+int construct_ether_hdr(struct rte_mbuf *m, uint8_t portid,
+		struct dp_sdf_per_bearer_info **sess_info);
 
 #endif				/* _ETHER_H_ */

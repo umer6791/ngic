@@ -22,6 +22,11 @@
  * prototypes of dataplane initialization, user session
  * and rating group processing functions.
  */
+
+#ifdef PCAP_GEN
+#include <pcap.h>
+#endif /* PCAP_GEN */
+
 #include <rte_ether.h>
 #include <rte_hash.h>
 #include <rte_malloc.h>
@@ -32,6 +37,7 @@
 #include "vepc_cp_dp_api.h"
 #include "dp_ipc_api.h"
 #include "meter.h"
+#include "structs.h"
 
 /**
  * dataplane rte logs.
@@ -144,6 +150,11 @@
 
 #define DEFAULT_HASH_FUNC rte_jhash
 
+/*
+ * To replace all old structures with the new one in code
+ * TODO: Cleaner way.
+ */
+#define dp_pcc_rules pcc_rules
 
 #ifdef HUGE_PAGE_16GB
 #define HASH_SIZE_FACTOR 4
@@ -166,6 +177,38 @@
 #define DPN_ID                       (12345)
 #endif /* DP_TABLE_CONFIG */
 
+#ifdef PCAP_GEN
+/**
+ * pcap filename length.
+ */
+#define PCAP_FILENAME_LEN 256
+
+/**
+ * pcap filenames.
+ */
+#define SPGW_S1U_PCAP_FILE "logs/s1u.pcap"
+#define SPGW_SGI_PCAP_FILE "logs/sgi.pcap"
+
+#define SGW_S1U_PCAP_FILE "logs/sgw_s1u.pcap"
+#define SGW_S5S8_PCAP_FILE "logs/sgw_s5s8.pcap"
+
+#define PGW_S5S8_PCAP_FILE "logs/pgw_s5s8.pcap"
+#define PGW_SGI_PCAP_FILE "logs/pgw_sgi.pcap"
+
+#endif /* PCAP_GEN */
+
+/*
+ * Define type of DP
+ * SGW - Service GW user plane
+ * PGW - Packet GW user plane
+ * SPGW - Combined userplane service for SGW an PGW
+ */
+enum dp_config {
+	SGWU = 01,
+	PGWU = 02,
+	SPGWU = 03,
+};
+
 /**
  * Application configure structure .
  */
@@ -174,19 +217,27 @@ struct app_params {
 	uint32_t s1u_net;			/* s1u network address */
 	uint32_t s1u_gw_ip;			/* s1u gateway ipv4 address */
 	uint32_t s1u_mask;			/* s1u network mask */
+	uint32_t s5s8_sgwu_ip;		/* s5s8_sgwu gateway ipv4 address */
+	uint32_t s5s8_pgwu_ip;		/* s5s8_pgwu gateway ipv4 address */
 	uint32_t sgi_ip;			/* sgi ipv4 address */
 	uint32_t sgi_net;			/* sgi network address */
 	uint32_t sgi_gw_ip;			/* sgi gateway ipv4 address */
 	uint32_t sgi_mask;			/* sgi network mask */
 	uint32_t s1u_port;			/* port no. to act as s1u */
+	uint32_t s5s8_sgwu_port;	/* port no. to act as s5s8_sgwu */
+	uint32_t s5s8_pgwu_port;	/* port no. to act as s5s8_pgwu */
 	uint32_t sgi_port;			/* port no. to act as sgi */
 	uint32_t log_level;			/* log level default - INFO,
 						 * 1 - DEBUG	 */
 	uint32_t numa_on;			/* Numa socket default 0 - disable,
 						 * 1 - enable	 */
-	struct ether_addr s1u_ether_addr;	/* s1u mac addr */
-	struct ether_addr sgi_ether_addr;	/* sgi mac addr */
+	enum dp_config spgw_cfg;
+	struct ether_addr s1u_ether_addr;		/* s1u mac addr */
+	struct ether_addr s5s8_sgwu_ether_addr;	/* s5s8_sgwu mac addr */
+	struct ether_addr s5s8_pgwu_ether_addr;	/* s5s8_pgwu mac addr */
+	struct ether_addr sgi_ether_addr;		/* sgi mac addr */
 };
+
 /** extern the app config struct */
 extern struct app_params app;
 
@@ -236,31 +287,6 @@ struct dp_adc_rules {
 	uint64_t drop_pkt_count;		/* No. of pkts dropped */
 	uint16_t mtr_profile_index;             /* index 0 to skip */
 } __attribute__((packed, aligned(RTE_CACHE_LINE_SIZE)));
-/**
- * Policy and Charging Control structure for DP
- */
-struct dp_pcc_rules {
-	uint32_t rule_id;
-	char rule_name[MAX_LEN];		/**< Rule Name */
-	uint32_t rating_group;			/**< Group rating */
-	uint32_t service_id;			/**< Service ID */
-	uint8_t rule_status;			/**< Rule Status */
-	uint8_t  gate_status;			/**< Gating open/close */
-	uint8_t  session_cont;			/**< Total Session Count */
-	uint8_t  report_level;			/**< Level of report */
-	uint8_t  charging_mode;			/**< Charging mode */
-	uint8_t  metering_method;		/**< Metering Methods
-						 * -fwd, srtcm, trtcm */
-	uint8_t  mute_notify;			/**< Mute on/off*/
-	uint32_t  monitoring_key;		/**< key to identify monitor
-						 * control instance */
-	char sponsor_id[MAX_LEN];		/**< Sponsor ID*/
-	struct  redirect_info redirect_info;	/**< Redirect  info*/
-	uint32_t precedence;			/**< Precedence*/
-	uint64_t drop_pkt_count;		/**< Drop count*/
-	struct qos_info qos;			/**< QoS Parameters*/
-} __attribute__((packed, aligned(RTE_CACHE_LINE_SIZE)));
-
 
 /**
  * Bearer Session information structure
@@ -490,6 +516,44 @@ int notification_handler(struct rte_pipeline *p,
 	struct rte_mbuf **pkts,
 	uint32_t n,
 	void *arg);
+
+/**
+ * Function to handle incoming pkts on s5s8 PGW interface.
+ *
+ * @param p
+ *	pointer to pipeline.
+ * @param pkts
+ *	pointer to pkts.
+ * @param n
+ *	number of pkts.
+ *
+ * @return
+ *	- 0  on success
+ *	- -1 on failure
+ */
+int
+pgw_s5_s8_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts,
+		uint32_t n,	int wk_index);
+
+/**
+ * Function to handle incoming pkts on s5s8 SGW interface.
+ *
+ * @param p
+ *	pointer to pipeline.
+ * @param pkts
+ *	pointer to pkts.
+ * @param n
+ *	number of pkts.
+ *
+ * @return
+ *	- 0  on success
+ *	- -1 on failure
+ */
+int
+sgw_s5_s8_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts,
+		uint32_t n,	int wk_index);
+
+
 /*************************pkt_handler.c functions end***********************/
 
 /**
@@ -525,10 +589,13 @@ update_dns_meta(struct rte_mbuf **pkts, uint32_t n, uint32_t *rid);
  *	bit mask to process the pkts, reset bit to free the pkt.
  * @param portid
  *	port id to forward the pkt.
+ * @param sess_info
+ *	pointer to session bear info
  */
 void
 update_nexthop_info(struct rte_mbuf **pkts, uint32_t n,
-		uint64_t *pkts_mask, uint8_t portid);
+		uint64_t *pkts_mask, uint8_t portid,
+		struct dp_sdf_per_bearer_info **sess_info);
 
 /************* ADC Rule Table function prototype***********/
 /**
@@ -609,8 +676,8 @@ dl_sess_info_get(struct rte_mbuf **pkts, uint32_t n, uint32_t *res,
 
 /**
  * Gate the incoming pkts based on PCC entry info.
- * @param sess_info
- *	list of per sdf bearer session struct pointers.
+ * @param pcc_info
+ *	list of pcc id precedence struct pionters.
  *	pcc information.
  * @param  n
  *	number of pkts.
@@ -621,9 +688,8 @@ dl_sess_info_get(struct rte_mbuf **pkts, uint32_t n, uint32_t *res,
  * Void
  */
 void
-pcc_gating(struct dp_sdf_per_bearer_info **pcc_info, uint32_t n,
-		uint64_t *pkts_mask);
-
+pcc_gating(struct pcc_id_precedence *pcc_info,
+		uint32_t n, uint64_t *pkts_mask);
 /**
  * Get ADC filter entry.
  * @param rid
@@ -1332,7 +1398,139 @@ enqueue_dl_pkts(struct dp_sdf_per_bearer_info **sess_info,
 		struct rte_mbuf **pkts, uint64_t pkts_queue_mask,
 		int wk_index);
 
-/***********************ddn_utils.c functions end**********************/
+/**
+ * Add entry into SDF-PCC or ADC-PCC association hash.
+ * @param type
+ *	Type of hash table, SDF/ADC.
+ * @param pcc_id
+ *	PCC rule id to be added.
+ * @param precedence
+ *	PCC rule precedence.
+ * @param gate_status
+ *	PCC rule gate status.
+ * @param  n
+ *	Number of SDF/ADC rules.
+ * @param  rule_ids
+ *	Pointer to SDF/ADC rule ids.
+ *
+ * @return
+ *	0 - on success
+ *	-1 - on failure
+ */
+int
+filter_pcc_entry_add(enum filter_pcc_type type, uint32_t pcc_id,
+		uint32_t precedence, uint8_t gate_status, uint32_t n, uint32_t *rule_ids);
 
+/**
+ * Modify entry into SDF-PCC or ADC-PCC association hash.
+ * @param type
+ *	Type of hash table, SDF/ADC.
+ * @param pcc_id
+ *	PCC rule id to be modified.
+ * @param  n
+ *	Number of SDF/ADC rules.
+ * @param  rule_ids
+ *	Pointer to SDF/ADC rule ids.
+ *
+ * @return
+ *	0 - on success
+ *	-1 - on failure
+ */
+int
+filter_pcc_entry_modify(enum filter_pcc_type type, uint32_t pcc_id,
+		uint32_t n, uint32_t *rule_ids);
+
+/**
+ * Delete entry from SDF-PCC or ADC-PCC association hash.
+ * @param type
+ *	Type of hash table, SDF/ADC.
+ * @param pcc_id
+ *	PCC rule id to be deleted.
+ * @param  n
+ *	Number of SDF/ADC rules.
+ * @param  rule_ids
+ *	Pointer to SDF/ADC rule ids.
+ *
+ * @return
+ *	0 - on success
+ *	-1 - on failure
+ */
+int
+filter_pcc_entry_delete(enum filter_pcc_type type, uint32_t pcc_id,
+		uint32_t n, uint32_t *rule_ids);
+
+/**
+ * Search SDF-PCC or ADC-PCC association hash for SDF/ADC ruleid as a key
+ * @param type
+ *	Type of hash table, SDF/ADC.
+ * @param pcc_id
+ *	SDF/ADC rule ids to be used for searching.
+ * @param  n
+ *	Number of SDF/ADC rules.
+ * @param  pcc_info
+ *	Pointer to matched PCC info.
+ *
+ * @return
+ *	0 - on success
+ *	-1 - on failure
+ */
+int
+filter_pcc_entry_lookup(enum filter_pcc_type type, uint32_t *rule_ids,
+		uint32_t n, struct pcc_id_precedence *pcc_info);
+
+/**
+ * update nexthop info.
+ * @param pkts
+ *	pointer to mbuf of packets.
+ * @param n
+ *	number of pkts.
+ * @param pkts_mask
+ *	bit mask to process the pkts, reset bit to free the pkt.
+ * @param sdf_bear_info
+ *	pointer to session bear info
+ */
+void
+update_nexts5s8_info(struct rte_mbuf **pkts, uint32_t n, uint64_t *pkts_mask,
+		struct dp_sdf_per_bearer_info **sdf_bear_info);
+
+/**
+ * update enb ip in ip header and s1u tied in gtp header.
+ * @param pkts
+ *	pointer to mbuf of packets.
+ * @param n
+ *	number of pkts.
+ * @param pkts_mask
+ *	bit mask to process the pkts, reset bit to free the pkt.
+ * @param sdf_bear_info
+ *	pointer to session bear info
+ */
+void
+update_enb_info(struct rte_mbuf **pkts, uint32_t n,
+		uint64_t *pkts_mask, struct dp_sdf_per_bearer_info **sess_info);
+
+#ifdef PCAP_GEN
+/**
+ * initialize pcap dumper.
+ * @param pcap_filename
+ *	pointer to pcap output filename.
+ */
+pcap_dumper_t *
+init_pcap(char* pcap_filename);
+
+/**
+ * write into pcap file.
+ * @param pkts
+ *	pointer to mbuf of packets.
+ * @param n
+ *	number of pkts.
+ * @param pcap_dumper
+ *	pointer to pcap dumper.
+ */
+void dump_pcap(struct rte_mbuf **pkts, uint32_t n,
+		pcap_dumper_t *pcap_dumper);
+
+#endif /* PCAP_GEN */
+
+/***********************ddn_utils.c functions end**********************/
 #endif /* _MAIN_H_ */
 

@@ -47,36 +47,64 @@ static inline void dp_print_usage(void)
 			"--------------------------------------------+\n");
 	printf("| %-*s | %-*s | %-*s |\n",
 			ARGUMENT_WIDTH,    "--s1u_ip",
-			PRESENCE_WIDTH,    "MANDATORY",
+			PRESENCE_WIDTH,    "OPTIONAL",
 			DESCRIPTION_WIDTH, "S1U IP address of the SGW.");
+
 	printf("| %-*s | %-*s | %-*s |\n",
 			ARGUMENT_WIDTH,    "--s1u_gw_ip",
 			PRESENCE_WIDTH,    "OPTIONAL",
 			DESCRIPTION_WIDTH, "S1U GW IP address of the SGW.");
+
 	printf("| %-*s | %-*s | %-*s |\n",
 			ARGUMENT_WIDTH,    "--s1u_mask",
 			PRESENCE_WIDTH,    "OPTIONAL",
 			DESCRIPTION_WIDTH, "S1U GW network mask of the SGW.");
+
 	printf("| %-*s | %-*s | %-*s |\n",
 			ARGUMENT_WIDTH,    "--s1u_mac",
-			PRESENCE_WIDTH,    "MANDATORY",
+			PRESENCE_WIDTH,    "OPTIONAL",
 			DESCRIPTION_WIDTH, "S1U port mac address of the SGW.");
+
+	printf("| %-*s | %-*s | %-*s |\n",
+			ARGUMENT_WIDTH,    "--s5s8_sgwu_ip",
+			PRESENCE_WIDTH,    "OPTIONAL",
+			DESCRIPTION_WIDTH, "S5S8_SGWU IP address of the SGW.");
+
+	printf("| %-*s | %-*s | %-*s |\n",
+			ARGUMENT_WIDTH,    "--s5s8_sgwu_mac",
+			PRESENCE_WIDTH,    "OPTIONAL",
+			DESCRIPTION_WIDTH, "S5S8_SGWU port mac address of the SGW.");
+
+	printf("| %-*s | %-*s | %-*s |\n",
+			ARGUMENT_WIDTH,    "--s5s8_pgwu_ip",
+			PRESENCE_WIDTH,    "OPTIONAL",
+			DESCRIPTION_WIDTH, "S5S8_PGWU IP address of the PGW.");
+
+	printf("| %-*s | %-*s | %-*s |\n",
+			ARGUMENT_WIDTH,    "--s5s8_pgwu_mac",
+			PRESENCE_WIDTH,    "OPTIONAL",
+			DESCRIPTION_WIDTH, "S5S8_PGWU port mac address of the PGW.");
+
 	printf("| %-*s | %-*s | %-*s |\n",
 			ARGUMENT_WIDTH,    "--sgi_ip",
-			PRESENCE_WIDTH,    "MANDATORY",
+			PRESENCE_WIDTH,    "OPTIONAL",
 			DESCRIPTION_WIDTH, "SGI IP address of the PGW.");
+
 	printf("| %-*s | %-*s | %-*s |\n",
 			ARGUMENT_WIDTH,    "--sgi_gw_ip",
 			PRESENCE_WIDTH,    "OPTIONAL",
 			DESCRIPTION_WIDTH, "SGI GW IP address of the PGW.");
+
 	printf("| %-*s | %-*s | %-*s |\n",
 			ARGUMENT_WIDTH,    "--sgi_mask",
 			PRESENCE_WIDTH,    "OPTIONAL",
 			DESCRIPTION_WIDTH, "SGI GW network mask of the PGW.");
+
 	printf("| %-*s | %-*s | %-*s |\n",
 			ARGUMENT_WIDTH,    "--sgi_mac",
-			PRESENCE_WIDTH,    "MANDATORY",
+			PRESENCE_WIDTH,    "OPTIONAL",
 			DESCRIPTION_WIDTH, "SGI port mac address of the PGW.");
+
 	printf("| %-*s | %-*s | %-*s |\n",
 			ARGUMENT_WIDTH,    "--s1uc",
 			PRESENCE_WIDTH,    "OPTIONAL",
@@ -137,11 +165,21 @@ static inline void dp_print_usage(void)
 			PRESENCE_WIDTH,    "MANDATORY",
 			DESCRIPTION_WIDTH,
 			"numa 1- enable, 0- disable.");
+
+	printf("| %-*s | %-*s | %-*s |\n",
+			ARGUMENT_WIDTH,    "--spgw_cfg",
+			PRESENCE_WIDTH,    "MANDATORY",
+			DESCRIPTION_WIDTH,
+			"spgw_cfg 01 - SGW, 02- PGW, 03- SPGW.");
+
 	printf("+-------------------+-------------+"
 			"--------------------------------------------+\n");
 	printf("\n\nExample Usage:\n"
 			"$ ./build/ngic_dataplane -c 0xfff -n 4 --\n"
+			"--spgw_cfg 01\n"
 			"--s1u_ip 11.1.1.100 --s1u_mac 90:e2:ba:58:c8:64\n"
+			"--s5s8_sgwu_ip 12.3.1.93\n"
+			"--s5s8_pgwu_ip 14.3.1.93\n"
 			"--sgi_ip 13.1.1.93 --sgi_mac 90:e2:ba:58:c8:65\n"
 			"--s1uc 0 --sgic 1\n"
 			"--bal 2 --mct 3 --iface 4 --stats 3\n"
@@ -232,9 +270,13 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 		{"s1u_ip", required_argument, 0, 'i'},
 		{"sgi_ip", required_argument, 0, 's'},
 		{"s1u_mac", required_argument, 0, 'm'},
+		{"s5s8_sgwu_mac", required_argument, 0, 'j'},
+		{"s5s8_pgwu_mac", required_argument, 0, 'k'},
 		{"sgi_mac", required_argument, 0, 'n'},
 		{"s1u_gw_ip", required_argument, 0, 'o'},
 		{"s1u_mask", required_argument, 0, 'q'},
+		{"s5s8_sgwu_ip", required_argument, 0, 'v'},
+		{"s5s8_pgwu_ip", required_argument, 0, 'r'},
 		{"sgi_gw_ip", required_argument, 0, 'x'},
 		{"sgi_mask", required_argument, 0, 'z'},
 		{"log", required_argument, 0, 'l'},
@@ -249,14 +291,19 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 		{"cdr_path", required_argument, 0, 'a'},
 		{"master_cdr", required_argument, 0, 'e'},
 		{"numa", required_argument, 0, 'f'},
+		{"spgw_cfg",  required_argument, 0, 'h'},
 		{NULL, 0, 0, 0}
 	};
 
-	optind = 0;		/* reset getopt lib */
+	optind = 0;/* reset getopt lib */
 
 	while ((opt = getopt_long(argc, argv, "i:s:m:n:u:g:b:m:w:d",
 					spgw_opts, &option_index)) != EOF) {
 		switch (opt) {
+		case 'h':
+			app->spgw_cfg = atoi(optarg);
+			break;
+
 		/* s1u_ip address */
 		case 'i':
 			if (!inet_aton(optarg, (struct in_addr *)&app->s1u_ip)) {
@@ -289,7 +336,7 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 				dp_print_usage();
 				return -1;
 			}
-			printf("Parsed s1u mac\n");
+
 			for (i = 0; i < RTE_MAX_ETHPORTS; i++) {
 				rte_eth_macaddr_get(i, &mac_addr);
 				if (is_same_ether_addr
@@ -301,13 +348,49 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 			}
 			break;
 
+			/* s5s8_sgwu_mac address */
+		case 'j':
+			if (!parse_ether_addr(&app->s5s8_sgwu_ether_addr, optarg)) {
+				dp_print_usage();
+				return -1;
+			}
+
+			for (i = 0; i < RTE_MAX_ETHPORTS; i++) {
+				rte_eth_macaddr_get(i, &mac_addr);
+				if (is_same_ether_addr
+					(&app->s5s8_sgwu_ether_addr, &mac_addr)) {
+					printf("s5s8_sgwu port %d\n", i);
+					app->s5s8_sgwu_port = i;
+					break;
+				}
+			}
+			break;
+
+			/* s5s8_pgwu_mac address */
+		case 'k':
+			if (!parse_ether_addr(&app->s5s8_pgwu_ether_addr, optarg)) {
+				dp_print_usage();
+				return -1;
+			}
+
+			for (i = 0; i < RTE_MAX_ETHPORTS; i++) {
+				rte_eth_macaddr_get(i, &mac_addr);
+				if (is_same_ether_addr
+					(&app->s5s8_pgwu_ether_addr, &mac_addr)) {
+					printf("s5s8_pgwu port %d\n", i);
+					app->s5s8_pgwu_port = i;
+					break;
+				}
+			}
+			break;
+
 			/* sgi_mac address */
 		case 'n':
 			if (!parse_ether_addr(&app->sgi_ether_addr, optarg)) {
 				dp_print_usage();
 				return -1;
 			}
-			printf("Parsed sgi mac\n");
+
 			for (i = 0; i < RTE_MAX_ETHPORTS; i++) {
 				rte_eth_macaddr_get(i, &mac_addr);
 				if (is_same_ether_addr
@@ -318,6 +401,7 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 				}
 			}
 			break;
+
 			/* s1u_gw_ip address */
 		case 'o':
 			if (!inet_aton(optarg, (struct in_addr *)&app->s1u_gw_ip)) {
@@ -330,6 +414,7 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 			printf("Parsed s1u gw ip: %s\n",
 					inet_ntoa(*((struct in_addr *)&app->s1u_gw_ip)));
 			break;
+
 			/* s1u_net address */
 		case 'q':
 			if (!inet_aton(optarg, (struct in_addr *)&app->s1u_mask)) {
@@ -342,6 +427,33 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 			printf("Parsed s1u network mask: %s\n",
 					inet_ntoa(*((struct in_addr *)&app->s1u_mask)));
 			break;
+
+		/* s5s8_sgwu_ip address */
+		case 'v':
+			if (!inet_aton(optarg, (struct in_addr *)&app->s5s8_sgwu_ip)) {
+				printf("Invalid s5s8_sgwu interface ip ->%s<-\n",
+						optarg);
+				dp_print_usage();
+				app->s5s8_sgwu_ip = 0;
+				return -1;
+			}
+			printf("Parsed s5s8_sgwu ip: %s\n",
+				inet_ntoa(*((struct in_addr *)&app->s5s8_sgwu_ip)));
+			break;
+
+		/* s5s8_pgwu_ip address */
+		case 'r':
+			if (!inet_aton(optarg, (struct in_addr *)&app->s5s8_pgwu_ip)) {
+				printf("Invalid s5s8_pgwu interface ip ->%s<-\n",
+						optarg);
+				dp_print_usage();
+				app->s5s8_pgwu_ip = 0;
+				return -1;
+			}
+			printf("Parsed s5s8_pgwu ip: %s\n",
+				inet_ntoa(*((struct in_addr *)&app->s5s8_pgwu_ip)));
+			break;
+
 			/* sgi_gw_ip address */
 		case 'x':
 			if (!inet_aton(optarg, (struct in_addr *)&app->sgi_gw_ip)) {
@@ -354,6 +466,7 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 			printf("Parsed sgi gw ip: %s\n",
 					inet_ntoa(*((struct in_addr *)&app->sgi_gw_ip)));
 			break;
+
 			/* sgi_net address */
 		case 'z':
 			if (!inet_aton(optarg, (struct in_addr *)&app->sgi_mask)) {
@@ -366,6 +479,7 @@ parse_config_args(struct app_params *app, int argc, char **argv)
 			printf("Parsed sgi network mask: %s\n",
 					inet_ntoa(*((struct in_addr *)&app->sgi_mask)));
 			break;
+
 		case 'l':
 			app->log_level = atoi(optarg);
 			break;

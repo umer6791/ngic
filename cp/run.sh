@@ -17,14 +17,21 @@ source ../config/cp_config.cfg
 
 APP_PATH="./build"
 APP="ngic_controlplane"
+LOG_LEVEL=1
 
 ARGS="-c 0x00e -n 4 --socket-mem $MEMORY,0 --file-prefix cp --no-pci -- \
-  -s $S11_SGW_IP          \
+  -d $SPGW_CFG            \
   -m $S11_MME_IP          \
+  -s $S11_SGW_IP          \
+  -r $S5S8_SGWC_IP        \
+  -g $S5S8_PGWC_IP        \
   -w $S1U_SGW_IP          \
+  -v $S5S8_SGWU_IP        \
+  -u $S5S8_PGWU_IP        \
   -i $IP_POOL_IP          \
   -p $IP_POOL_MASK        \
-  -a $APN"
+  -a $APN				  \
+  -l $LOG_LEVEL"
 
 USAGE=$"Usage: run.sh [ debug | log ]
 	debug:	executes $APP under gdb

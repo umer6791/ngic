@@ -17,8 +17,8 @@ NGIC Installation Guide
 
 1. System Topology
 ------------------
-
 ```text
+Deployment-1 as SPGW(Service GW and PDN GW combined):
                              +----------+
                              | MME-     |
                              | System5: |
@@ -30,7 +30,7 @@ NGIC Installation Guide
                   |           NGIC VNF          |
                   |                             |
                   | +-------------------------+ |
-                  | |      ControlPlane       | |
+                  | |   SPGW : ControlPlane   | |
                   | |                         | |
                   | +-----+---------+---------+ |
                   | |     |         |           |
@@ -38,13 +38,43 @@ NGIC Installation Guide
 | Traffic    |    | |     |UDP     SDN          |    | Traffic    |
 | Generator  |    | |     |         +zmq        |    | Generator  |
 | System3:   | 10G| +-----+-------------------+ |10G | System3:   |
-| ixia, ng4t,+------+        DataPlane        +------+ ixia, ng4t,|
+| ixia, ng4t,+------+   SPGW : DataPlane      +------+ ixia, ng4t,|
 | pktgen etc |    | |                         | |    | pktgen etc |
 +------------+    | +-------------------------+ |    +------------+
                   +-----------------------------+
+
+
+Deployment-2 as SGW(Service GW) and PGW(PDN GW):
+                                            +----------+
+                                            | MME-     |
+                                            | System5: |
+                                            | ng4t     |
+                                            |          |
+                                            +----------+
+                                                |1G
+                  +-------------------------------------------------------------+
+                  |                           NGIC VNF                          |
+                  |                                                             |
+                  | +-------------------------+     +-------------------------+ |
+                  | |    SGW : ControlPlane   +-----+    PGW : ControlPlane   | |
+                  | |                         |     |                         | |
+                  | +-----+---------+---------+     +-----+---------+---------+ |
+                  | |     |         |               |     |         |           |
++------------+    | |     |IPC/     +fpc            |     |IPC/     +fpc        |     +------------+
+| Traffic    |    | |     |UDP     SDN              |     |UDP     SDN          |     | Traffic    |
+| Generator  |    | |     |         +zmq            |     |         +zmq        |     | Generator  |
+| System3:   | 10G| +-----+-------------------+     +-----+-------------------+ |10G  | System3:   |
+| ixia, ng4t,+------+    SGW : DataPlane      +-----+    PGW : DataPlane      + ------+ ixia, ng4t,|
+| pktgen etc |    | |                         |     |                         | |     | pktgen etc |
++------------+    | +-------------------------+     +-------------------------+ |     +------------+
+                  +-------------------------------------------------------------+
 ```
 
-* Data Plane and Control plane can run on two different systems using SDN or UDP interfaces
+* Deployment-1 shows how SPGW(Combined SGW and PGW) fits in the end to end setup. Instance of control plane
+takes care of SGW and PGW handling. Same applies for Dataplane instance.
+* Deployment-2 shows how SGW and PGW can be separately installed in the deployment. In this case SGW and PGW in
+control plane communicate over S5S8 protocol, and same way SGW and PGW in dataplane communicate with each other.
+* Data Plane(DP) and Control plane(CP) can run on two different systems using SDN or UDP interfaces
 * CP and DP can be run in a Virtualized Environment.
 * With SDN communication, CP to SDN works on FPC and SDN to DP works on ZMQ.
 * System3 and System4 are the traffic generators connected to VNF over 10G interfaces.
@@ -60,23 +90,28 @@ speed interface also.
 
 Following config files contain static rule information:
 adc_rules.cfg - Contains Application Detection Control (ADC) rules
-static_pcc.cfg - Contains packet filters and policy, charging, & control
-		information that the Control Plane uses to install PCC and
-		Filters on the DP on initialization.
+pcc_rules.cfg - Contains packet filters and policy, charging, & control
+                information that the Control Plane uses to install PCC and
+                Filters on the DP on initialization.
+sdf_rules.cfg - Contains Service Data Filter rules to apply on data plane traffic.
+meter_profile.cfg - Metering rules to apply on traffic. This is not used currently.
 
 Following config files should be configured properly with ports information
 and interface for communication needed by the applications:
+In below file uncomment one of the section for configurating as SPGW, SGW or PGW.
 cp_config.cfg - Configure port IPs and other parameters needed by control
-		plane application
+                plane application
 dp_config.cfg - Configure port IPs and MACs needed by data plane app
 interface.cfg - To add interface details between CP and DP. For example, for
-		UDP set ip address and ports.
+                UDP set ip address and ports.
 
 Following config files are referenced only for specific use case:
 rules_ipv4.cfg - Set ACL ipv4 filter if ACL_READ_CFG is to be used
 rules_ipv6.cfg - Set ACL ipv6 filter if ACL_READ_CFG is to be used
 simu_cp.cfg - Use this to set info in simulated control plane testing.
-		See `Simulated CP config'
+                See `Simulated CP config'
+static_arp.cfg - Configure IP to MAC address mapping for devices whose address will not be
+				resolved through ARP dynamically.
 
 #### 2.2 CP Configuration
 `static_pcc.cfg` contains packet filters and policy, charging, & control information
@@ -104,12 +139,17 @@ CP application run parameters to be supplied in cp_config.cfg:
 
 | ARGUMENT          | PRESENCE    | DESCRIPTION                                |
 |:------------------|:------------|:-------------------------------------------|
+| -SPGW_CFG         | MANDATORY   | CP run setup:01(SGWC), 02(PGWC),03(SPGWC)  |
 | -s11_sgw_ip       | MANDATORY   | Local interface IP exposed to Linux        |
-|		    |		  | networking stack to be used by the Control |
+|                   |             | networking stack to be used by the Control |
 |                   |             | Plane for messaging with the MME           |
 | -s11_mme_ip       | MANDATORY   | MME IP                                     |
 | -s1u_sgw_ip       | MANDATORY   | Network interface IP exposed by DP; must be|
 |                   |             | equivalent to --s1u_ip parameter of DP     |
+| -s5s8_sgwc_ip     | OPTIONAL    | Applicable in case of SGWC configuration   |
+| -s5s8_sgwu_ip     | OPTIONAL    | Applicable in case of SGWC configuration   |
+| -s5s8_pgwc_ip     | OPTIONAL    | Applicable in case of PGWC configuration   |
+| -s5s8_pgwu_ip     | OPTIONAL    | Applicable in case of PGWC configuration   |
 | -ip_pool_ip       | MANDATORY   | Along with mask, defines pool of IP        |
 |                   |             | addresses that CP may assign to UEs        |
 | -ip_pool_mask     | MANDATORY   | ip_pool_mask                               |
@@ -117,11 +157,11 @@ CP application run parameters to be supplied in cp_config.cfg:
 |                   |             | must correspond to APN referenced in create|
 |                   |             | session request messages along the s11     |
 | -pcap_file_in     | OPTIONAL    | Ignores s11 interface and acts as if       |
-|                   |		  | packets contained in input file arrived    |
-|		    |		  | from MME                                   |
+|                   |             | packets contained in input file arrived    |
+|                   |             | from MME                                   |
 | -pcap_file_out    | OPTIONAL    | Creates a capture of messages created by   |
-|		    |		  | CP. Mainly for development purposes        |
-
+|                   |             | CP. Mainly for development purposes        |
+|:------------------|:------------|:-------------------------------------------|
 
 #### 2.3 DP Configuration :
 DP dpdk run parameters:
@@ -141,9 +181,18 @@ Dataplane supported command line arguments are:
 
 | ARGUMENT          | PRESENCE    | DESCRIPTION                                |
 |:------------------|:------------|:-------------------------------------------|
+| --spgw_cfg        | MANDATORY   | DP run setup:01(SGWU), 02(PGWU),03(SPGWU)  |
 | --s1u_ip          | MANDATORY   | S1U IP address of the SGW.                 |
 | --s1u_mac         | MANDATORY   | S1U port mac address of the SGW.           |
 | --sgi_ip          | MANDATORY   | SGI IP address of the SGW.                 |
+| --s5s8_sgwu_port  | MANDATORY   | Port of SGWU s5s8 interface. Applicable for|
+|                   |             | SGWU configuration only                    |
+| --s5s8_sgwu_mac   | MANDATORY   | MAC of SGWU s5s8 interface. Applicable for |
+|                   |             | SGWU configuration only                    |
+| --s5s8_pgwu_port  | MANDATORY   | Port of PGWU s5s8 interface. Applicable for|
+|                   |             | PGWU configuration only                    |
+| --s5s8_pgwu_mac   | MANDATORY   | MAC of PGWU s5s8 interface. Applicable for |
+|                   |             | PGWU configuration only                    |
 | --sgi_mac         | MANDATORY   | SGI port mac address of the PGW.           |
 | --s1uc            | OPTIONAL    | core number to run s1u rx/tx.              |
 | --sgic            | OPTIONAL    | core number to run sgi rx/tx.              |
@@ -153,6 +202,7 @@ Dataplane supported command line arguments are:
 | --stats           | OPTIONAL    | core number to run timer for stats.        |
 | --num_workers     | MANDATORY   | no. of worker instances.                   |
 | --log             | MANDATORY   | log level, 1- Notification, 2- Debug.      |
+|:------------------|:------------|:-------------------------------------------|
 
 * Enter the mac addresses for s1u and sgi ports obtained from step 2.1
   respectively
@@ -289,6 +339,7 @@ Edit `config/simu_cp.cfg` with following information:
 |__max_meter_profile_entries__ | maximum meter profiles to be created.  |
 |__default_bearer__     | Default bearer number, this is set to 5.      |
 |__dedicated_bearer__   | Set this to 0 if dedicated bearer is not reqd.|
+|:----------------------|:----------------------------------------------|
 
 Example configuration:
 
@@ -387,9 +438,9 @@ Step 3: Build NGIC
     and update the required environment variables.
 [2] Select services to build. You will be prompted to select following options
     from sub-menu, and optionally edit the memory size:
-	1. CP Only
-	2. DP Only
-	3. Collocated CP and DP
+        1. CP Only
+        2. DP Only
+        3. Collocated CP and DP
 [3] Select yes in this option to be able to download the required packages.
 [4] Actual download of the dependent packages like libpcap, build essentials
     etc.

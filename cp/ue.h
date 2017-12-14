@@ -104,6 +104,9 @@ typedef struct pdn_connection_t {
 	struct in_addr ipv4;
 	struct in6_addr ipv6;
 
+	uint32_t s5s8_sgw_gtpc_teid;
+	struct in_addr s5s8_sgw_gtpc_ipv4;
+
 	uint32_t s5s8_pgw_gtpc_teid;
 	struct in_addr s5s8_pgw_gtpc_ipv4;
 
@@ -127,6 +130,10 @@ typedef struct eps_bearer_t {
 
 	struct in_addr s1u_sgw_gtpu_ipv4;
 	uint32_t s1u_sgw_gtpu_teid;
+	struct in_addr s5s8_sgw_gtpu_ipv4;
+	uint32_t s5s8_sgw_gtpu_teid;
+	struct in_addr s5s8_pgw_gtpu_ipv4;
+	uint32_t s5s8_pgw_gtpu_teid;
 	struct in_addr s1u_enb_gtpu_ipv4;
 	uint32_t s1u_enb_gtpu_teid;
 
@@ -154,6 +161,25 @@ extern apn one_apn;
 void
 set_s1u_sgw_gtpu_teid(eps_bearer *bearer, ue_context *context);
 
+
+/**
+ * sets the s5s8_sgw gtpu teid given the bearer
+ * @param bearer
+ *   bearer whose tied is to be set
+ * @param context
+ *   ue context of bearer, whose teid is to be set
+ */
+void
+set_s5s8_sgw_gtpu_teid(eps_bearer *bearer, ue_context *context);
+
+
+/**
+ * sets the s5s8_pgw gtpc teid given the pdn_connection
+ * @param pdn
+ *   pdn_connection whose s5s8 tied is to be set
+ */
+void
+set_s5s8_pgw_gtpc_teid(pdn_connection *pdn);
 
 /**
  * Initializes UE hash table

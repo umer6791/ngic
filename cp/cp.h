@@ -23,6 +23,19 @@
  * Control Plane specific declarations
  */
 
+/*
+ * Define type of Control Plane (CP)
+ * SGWC - Serving GW Control Plane
+ * PGWC - PDN GW Control Plane
+ * SPGWC - Combined SAEGW Control Plane
+ */
+enum cp_config {
+	SGWC = 01,
+	PGWC = 02,
+	SPGWC = 03,
+};
+extern enum cp_config spgw_cfg;
+
 /**
  * @brief core identifiers for control plane threads
  */
@@ -31,8 +44,14 @@ struct cp_params {
 	unsigned nb_core_id;
 };
 
+extern pcap_dumper_t *pcap_dumper;
+extern pcap_t *pcap_reader;
+
 extern int s11_fd;
 extern int s11_pcap_fd;
+extern int s5s8_sgwc_fd;
+extern int s5s8_pgwc_fd;
+
 extern struct cp_params cp_params;
 
 /**

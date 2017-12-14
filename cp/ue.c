@@ -39,8 +39,25 @@ static struct in_addr ip_pool_mask;
 
 apn one_apn;
 
+const uint32_t s11_sgw_gtpc_base_teid = 0xC0FFEE;
+static uint32_t s11_sgw_gtpc_teid_offset;
+const uint32_t s5s8_pgw_gtpc_base_teid = 0xD0FFEE;
+static uint32_t s5s8_pgw_gtpc_teid_offset;
+
 uint32_t base_s1u_sgw_gtpu_teid = 0xf0000000;
 
+/*
+ * Define type of Control Plane (CP)
+ * SGWC - Serving GW Control Plane
+ * PGWC - PDN GW Control Plane
+ * SPGWC - Combined SAEGW Control Plane
+ */
+enum cp_config {
+	SGWC = 01,
+	PGWC = 02,
+	SPGWC = 03,
+};
+extern enum cp_config spgw_cfg;
 
 void
 set_s1u_sgw_gtpu_teid(eps_bearer *bearer, ue_context *context)
@@ -51,6 +68,25 @@ set_s1u_sgw_gtpu_teid(eps_bearer *bearer, ue_context *context)
 	context->teid_bitmap |= (0x01 << index);
 }
 
+void
+set_s5s8_sgw_gtpu_teid(eps_bearer *bearer, ue_context *context)
+{
+	uint8_t index = __builtin_ffs(~(context->teid_bitmap)) - 1;
+	/* Note: s5s8_sgw_gtpu_teid based s11_sgw_gtpc_teid
+	 * Computation same as s1u_sgw_gtpu_teid
+	 */
+	bearer->s5s8_sgw_gtpu_teid = (context->s11_sgw_gtpc_teid & 0x00ffffff)
+	    | ((0xf0 + index) << 24);
+	context->teid_bitmap |= (0x01 << index);
+}
+
+void
+set_s5s8_pgw_gtpc_teid(pdn_connection *pdn)
+{
+	pdn->s5s8_pgw_gtpc_teid = s5s8_pgw_gtpc_base_teid
+		+ s5s8_pgw_gtpc_teid_offset;
+	++s5s8_pgw_gtpc_teid_offset;
+}
 
 void
 create_ue_hash(void)
@@ -183,10 +219,8 @@ create_ue_context(gtpv2c_ie *imsi_ie, uint8_t ebi, ue_context **context)
 	int i;
 	uint8_t ebi_index;
 	uint64_t imsi = UINT64_MAX;
-	const uint32_t s11_sgw_gtpc_base_teid = 0xC0FFEE;
-	pdn_connection *pdn;
-	eps_bearer *bearer;
-	static uint32_t s11_sgw_gtpc_teid_offset;
+	pdn_connection *pdn = NULL;
+	eps_bearer *bearer = NULL;
 
 	memcpy(&imsi, IE_TYPE_PTR_FROM_GTPV2C_IE(uint64_t, imsi_ie),
 	    ntohs(imsi_ie->length));
@@ -214,12 +248,21 @@ create_ue_context(gtpv2c_ie *imsi_ie, uint8_t ebi, ue_context **context)
 			rte_free((*context));
 			return GTPV2C_CAUSE_SYSTEM_FAILURE;
 		}
-		(*context)->s11_sgw_gtpc_teid = s11_sgw_gtpc_base_teid
-		    + s11_sgw_gtpc_teid_offset;
-		++s11_sgw_gtpc_teid_offset;
+
+		if ((spgw_cfg == SGWC) || (spgw_cfg == SPGWC)) {
+			(*context)->s11_sgw_gtpc_teid = s11_sgw_gtpc_base_teid
+			    + s11_sgw_gtpc_teid_offset;
+			++s11_sgw_gtpc_teid_offset;
+
+		} else if (spgw_cfg == PGWC){
+			(*context)->s11_sgw_gtpc_teid = s5s8_pgw_gtpc_base_teid
+				+ s5s8_pgw_gtpc_teid_offset;
+		}
+
 		ret = rte_hash_add_key_data(ue_context_by_fteid_hash,
 		    (const void *) &(*context)->s11_sgw_gtpc_teid,
 		    (void *) (*context));
+
 		if (ret < 0) {
 			fprintf(stderr,
 				"%s - Error on ue_context_by_fteid_hash add\n",

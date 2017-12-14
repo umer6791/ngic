@@ -40,8 +40,10 @@ SRCS-y += packet_filters.c
 SRCS-y += gtpv2c_messages/bearer_resource_cmd.o
 SRCS-y += gtpv2c_messages/create_bearer.o
 SRCS-y += gtpv2c_messages/create_session.o
+SRCS-y += gtpv2c_messages/create_s5s8_session.o
 SRCS-y += gtpv2c_messages/delete_bearer.o
 SRCS-y += gtpv2c_messages/delete_session.o
+SRCS-y += gtpv2c_messages/delete_s5s8_session.o
 SRCS-y += gtpv2c_messages/echo.o
 SRCS-y += gtpv2c_messages/modify_bearer.o
 SRCS-y += gtpv2c_messages/downlink_data_notification.o
@@ -74,8 +76,13 @@ ifneq (,$(findstring SDN_ODL_BUILD, $(CFLAGS)))
 	LDLIBS += -ljson-c
 	LDLIBS += -lcurl
 endif
+
+#Enable '-E' option to debug preprocessor output
+#CFLAGS += -E
+
+#Enable'-g -O0' option for gdb
 CFLAGS += -O3
-#CFLAGS += -O0
+#CFLAGS += -g -O0
 
 CFLAGS += $(WERROR_FLAGS)
 CFLAGS_config.o := -D_GNU_SOURCE

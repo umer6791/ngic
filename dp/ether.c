@@ -52,7 +52,8 @@ static inline void set_ether_type(struct rte_mbuf *m, uint16_t type)
  *	- 0  on success
  *	- -1 on failure (ARP lookup fail)
  */
-int construct_ether_hdr(struct rte_mbuf *m, uint8_t portid)
+int construct_ether_hdr(struct rte_mbuf *m, uint8_t portid,
+		struct dp_sdf_per_bearer_info **sess_info)
 {
 	struct ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, void *);
 	struct ipv4_hdr *ipv4_hdr = (struct ipv4_hdr *)&eth_hdr[1];
@@ -62,14 +63,36 @@ int construct_ether_hdr(struct rte_mbuf *m, uint8_t portid)
 		0, 0, 0 /* filler */
 	};
 
-	if (portid == app.s1u_port) {
-		if (app.s1u_gw_ip != 0 &&
-				(tmp_arp_key.ip & app.s1u_mask) != app.s1u_net)
-			tmp_arp_key.ip = app.s1u_gw_ip;
-	} else if(portid == app.sgi_port) {
-		if (app.sgi_gw_ip != 0 &&
-				(tmp_arp_key.ip & app.sgi_mask) != app.sgi_net)
-			tmp_arp_key.ip = app.sgi_gw_ip;
+	if (app.spgw_cfg == SPGWU) {
+		if (portid == app.s1u_port) {
+			if (app.s1u_gw_ip != 0 &&
+					(tmp_arp_key.ip & app.s1u_mask) != app.s1u_net)
+				tmp_arp_key.ip = app.s1u_gw_ip;
+		} else if(portid == app.sgi_port) {
+			if (app.sgi_gw_ip != 0 &&
+					(tmp_arp_key.ip & app.sgi_mask) != app.sgi_net)
+				tmp_arp_key.ip = app.sgi_gw_ip;
+		}
+	} else if (app.spgw_cfg == SGWU) {
+		if (portid == app.s1u_port) {
+			if (app.s1u_gw_ip != 0)
+				tmp_arp_key.ip = app.s1u_gw_ip;
+		} else if (portid == app.s5s8_sgwu_port) {
+			uint32_t s5s8_pgwu_addr =
+				sess_info[0]->bear_sess_info->ul_s1_info.s5s8_pgwu_addr.u.ipv4_addr;
+			if (s5s8_pgwu_addr != 0)
+				tmp_arp_key.ip = htonl(s5s8_pgwu_addr);
+		}
+	} else if(app.spgw_cfg == PGWU) {
+		if (portid == app.sgi_port) {
+			if (app.sgi_gw_ip != 0)
+				tmp_arp_key.ip = app.sgi_gw_ip;
+		} else if (portid == app.s5s8_pgwu_port) {
+			uint32_t s5s8_sgwu_addr =
+				sess_info[0]->bear_sess_info->dl_s1_info.s5s8_sgwu_addr.u.ipv4_addr;
+			if (s5s8_sgwu_addr != 0)
+				tmp_arp_key.ip = htonl(s5s8_sgwu_addr);
+		}
 	}
 
 	/* IPv4 L2 hdr */
@@ -111,8 +134,11 @@ int construct_ether_hdr(struct rte_mbuf *m, uint8_t portid)
 	}
 
 	if (ret_arp_data->status == INCOMPLETE)	{
-		if (arp_queue_unresolved_packet(ret_arp_data, m) == 0)
+		if (arp_queue_unresolved_packet(ret_arp_data, m) == 0) {
+			RTE_LOG(DEBUG, DP, "%s: after arp_queue_unresolved_packet"
+					" returning -1 for ip 0x%x\n", __func__, tmp_arp_key.ip);
 			return -1;
+		}
 	}
 
 	RTE_LOG(DEBUG, DP,

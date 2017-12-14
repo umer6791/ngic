@@ -1295,7 +1295,13 @@ dp_filter_entry_add(char *name, enum acl_cfg_tbl type, struct pkt_filter *pkt_fi
 {
 	struct rte_acl_rule *next;
 	uint32_t rule_id;
-	uint32_t prio;
+
+	/* TODO: As precedence is no longer part of ADC & SDF, we are adding priority.
+	 * For default ADC & SDF rule, we have considered priority as 0.
+	 * Also what should be the maximum value of priority?
+	 * Currently only 255 is considered. Need to revisit.
+	 */
+	static uint8_t prio = 0;
 	char *buf;
 	if (pkt_filter == NULL)
 		rte_exit(EXIT_FAILURE, "%s:\n"
@@ -1303,7 +1309,9 @@ dp_filter_entry_add(char *name, enum acl_cfg_tbl type, struct pkt_filter *pkt_fi
 
 	/* TODO: Ensure rule_id does not exceed max num rules*/
 	rule_id = pkt_filter->pcc_rule_id;
-	prio = pkt_filter->precedence;
+	if (rule_id == SDF_DEFAULT_DROP_RULE_ID)
+		prio = 0;
+
 	buf = (char *)&pkt_filter->u.rule_str[0];
 
 	struct acl4_rule r;
@@ -1314,7 +1322,7 @@ dp_filter_entry_add(char *name, enum acl_cfg_tbl type, struct pkt_filter *pkt_fi
 				__func__);
 
 	next->data.userdata = rule_id + ACL_DENY_SIGNATURE;
-	next->data.priority = prio;
+	next->data.priority = prio--;
 	next->data.category_mask = -1;
 		if (dp_rules_entry_add(&acl_rules_table[type/2], (struct acl4_rule *)next) < 0)
 			return -1;
@@ -1398,7 +1406,6 @@ default_entry_add(char *name, enum acl_cfg_tbl type, uint32_t rule_id)
 	struct pkt_filter def_pkt_filter;
 	/* default rule id = max_elements of table */
 	def_pkt_filter.pcc_rule_id = rule_id;
-	def_pkt_filter.precedence = 0x1fffffff - rule_id;
 	sprintf((char *)&def_pkt_filter.u.rule_str[0], "0.0.0.0/0 0.0.0.0/0 0 : 65535 0 : 65535 0x0/0x0\n");
 
 	if (dp_filter_entry_add(name, type, &def_pkt_filter) < 0)
@@ -1413,10 +1420,13 @@ default_entry_add(char *name, enum acl_cfg_tbl type, uint32_t rule_id)
 static int
 dns_entry_add(struct dp_id dp_id)
 {
+	/* TODO : Query : Why DNS_RULE_ID is 17 (MAX_ADC_RULE +1).
+	 *        Why MAX_ADC_RULE = 16 ?
+	 *        What should be precedence of DNS rule?
+	 */
 	struct pkt_filter dns_pkt_filter;
 
 	dns_pkt_filter.pcc_rule_id = DNS_RULE_ID;
-	dns_pkt_filter.precedence = DNS_FILTER_PRECE;
 	sprintf((char *)&dns_pkt_filter.u.rule_str[0], "0.0.0.0/0 0.0.0.0/0 53 : 53 0 : 65535 0x0/0x0\n");
 
 	if (dp_adc_filter_entry_add(dp_id, &dns_pkt_filter) < 0)
@@ -1468,10 +1478,6 @@ dp_sdf_filter_entry_add(struct dp_id dp_id, struct pkt_filter *pkt_filter)
 
 	if (is_first == 1) {
 		cdr_init();
-		if (dp_sdf_default_entry_action_modify(dp_id,
-					SDF_DEFAULT_DROP_RULE_ID) < 0)
-			return -1;
-
 		is_first = 0;
 	}
 
@@ -1480,10 +1486,8 @@ dp_sdf_filter_entry_add(struct dp_id dp_id, struct pkt_filter *pkt_filter)
 
 	sdf_active_tbl = standby;
 
-	RTE_LOG(INFO, DP, "ACL ADD:%s rule_id:%d, precedence:%d,rule:%s\n",
-			"SDF", pkt_filter->pcc_rule_id,
-			pkt_filter->precedence, pkt_filter->u.rule_str);
-
+	RTE_LOG(INFO, DP, "ACL ADD:%s, rule_id:%d, rule:%s\n",
+			"SDF", pkt_filter->pcc_rule_id, pkt_filter->u.rule_str);
 	return 0;
 }
 
@@ -1742,7 +1746,6 @@ int dp_sdf_default_entry_add(struct dp_id dp_id, uint32_t rule_id)
 	enum acl_cfg_tbl standby = dp_acl_get_standby(sdf_active_tbl);
 	struct pkt_filter pktf = {
 			.pcc_rule_id = rule_id,
-			.precedence = 255,
 		};
 
 	RTE_SET_USED(dp_id);
@@ -1782,7 +1785,6 @@ int dp_sdf_default_entry_action_modify(struct dp_id dp_id, uint32_t rule_id)
 
 	struct pkt_filter pktf = {
 			.pcc_rule_id = SDF_DEFAULT_RULE_ID,
-			.precedence = 255,
 		};
 
 	snprintf(pktf.u.rule_str, MAX_LEN, "%s/%"PRIu8" %s/%"PRIu8" %"
@@ -1812,7 +1814,6 @@ dp_adc_filter_default_entry_add(struct dp_id dp_id)
 	RTE_SET_USED(dp_id);
 
 	adc_filter.pcc_rule_id = ADC_DEFAULT_RULE_ID;
-	adc_filter.precedence = 0xffff;
 	sprintf(adc_filter.u.rule_str, "0.0.0.0/0 0.0.0.0/0 "
 		"0 : 65535 0 : 65535 0x0/0x0\n");
 

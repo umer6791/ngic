@@ -41,6 +41,16 @@
  */
 #define MAX_ADC_RULES 16
 
+
+/**
+ * Maximum number of SDF indices that can be referred in PCC rule.
+ * Max length of the sdf rules string that will be recieved as part of add
+ * pcc entry from FPC. String is list of SDF indices.
+ * TODO: Revisit this count
+ */
+#define MAX_SDF_IDX_COUNT 16
+#define MAX_SDF_STR_LEN 4096
+
 /**
  * Maximum buffer/name length
  */
@@ -176,7 +186,6 @@ struct service_data_list {
  */
 struct pkt_filter {
 	uint32_t pcc_rule_id;				/* PCC rule id*/
-	uint32_t precedence;				/* Precedence*/
 	union {
 		char rule_str[MAX_LEN];		/* string of rule, please refer
 						 * cp/main.c for example
@@ -236,37 +245,6 @@ struct adc_rules {
 		struct ip_prefix domain_prefix;	/* Domain IP prefix */
 	} u;
 	uint32_t rule_id;				/* Rule ID*/
-	char rule_name[MAX_LEN];		/* ADC Rule Name*/
-	uint32_t rating_group;			/* Rating of Group*/
-	uint32_t service_id;			/* to identify the service
-						 * or the service component
-						 * the adc relates to*/
-	uint32_t application_id;		/* application identifier shall be used to
-						 * reference the corresponding application,
-						 * for which the rule applies.*/
-	uint8_t  gate_status;			/* Open/close*/
-	uint8_t  report_level;			/* Report Level*/
-	uint8_t  charging_mode;			/* Mode of Charging*/
-	uint8_t  metering_method;		/* Metering Methods
-						 * -fwd, srtcm, trtcm*/
-	uint8_t  mute_notify;			/* Mute on/off*/
-	uint32_t  monitoring_key;		/* key to identify monitor control instance that shall
-						 * be used for usage monitoring control of the service
-						 * data flows controlled*/
-	char sponsor_id[MAX_LEN];		/* to identify the 3rd party organization (the
-						 * sponsor) willing to pay for the operator's charge*/
-	struct tm rule_activation_time;		/* Rule Start time*/
-	struct tm rule_deactivation_time;	/* Rule Stop time*/
-	struct  redirect_info redirect_info;	/* Redirect  info*/
-	uint32_t precedence;			/* Precedence*/
-	uint16_t mtr_profile_index;		/* index 0 to skip*/
-
-	/* TBD: we don't have a reference for tariff_time (sec, min, hours???)
-	 * so worry about implementation when we implement it
-	 */
-	char tarriff_group[MAX_LEN];
-	char tarriff_time[MAX_LEN];
-
 } __attribute__((packed, aligned(RTE_CACHE_LINE_SIZE)));
 
 
@@ -315,6 +293,7 @@ struct ul_s1_info {
 	uint32_t sgw_teid;		/* SGW teid*/
 	struct ip_addr enb_addr;	/* eNodeB address*/
 	struct ip_addr sgw_addr;	/* Serving Gateway address*/
+	struct ip_addr s5s8_pgwu_addr;	/* S5S8_PGWU address*/
 } __attribute__((packed, aligned(RTE_CACHE_LINE_SIZE)));
 
 /**
@@ -324,6 +303,7 @@ struct dl_s1_info {
 	uint32_t enb_teid;		/* eNodeB teid*/
 	struct ip_addr enb_addr;	/* eNodeB address*/
 	struct ip_addr sgw_addr;	/* Serving Gateway address*/
+	struct ip_addr s5s8_sgwu_addr;	/* S5S8_SGWU address*/
 } __attribute__((packed, aligned(RTE_CACHE_LINE_SIZE)));
 
 /**
@@ -341,10 +321,6 @@ struct pcc_rules {
 						 * may pass or shall be discarded*/
 	uint8_t  session_cont;			/* Total Session Count*/
 	uint8_t  report_level;			/* Level of report*/
-	uint8_t  charging_mode;			/* online and offline charging*/
-	uint8_t  metering_method;		/* Metering Methods
-						 * -fwd, srtcm, trtcm*/
-	uint8_t  mute_notify;			/* Mute on/off*/
 	uint32_t  monitoring_key;		/* key to identify monitor control instance that shall
 						 * be used for usage monitoring control of the service
 						 * data flows controlled*/
@@ -353,7 +329,14 @@ struct pcc_rules {
 	struct  redirect_info redirect_info;	/* Redirect  info*/
 	uint32_t precedence;			/* Precedence*/
 	uint64_t drop_pkt_count;		/* Drop count*/
+	int32_t adc_idx;
+	uint32_t sdf_idx_cnt;
+	uint32_t sdf_idx[MAX_SDF_IDX_COUNT];
 	struct qos_info qos;			/* QoS Parameters*/
+	uint8_t  charging_mode;			/* online and offline charging*/
+	uint8_t  metering_method;		/* Metering Methods
+						 * -fwd, srtcm, trtcm*/
+	uint8_t  mute_notify;			/* Mute on/off*/
 } __attribute__((packed, aligned(RTE_CACHE_LINE_SIZE)));
 
 struct cdr {

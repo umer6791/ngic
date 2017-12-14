@@ -161,6 +161,7 @@ udp_init_cp_socket(void)
 		rte_exit(EXIT_FAILURE, "Create CP UDP Socket Failed "
 			"for IP %s:%u!!!\n",
 			inet_ntoa(dp_comm_ip), dp_comm_port);
+
 	return 0;
 }
 
@@ -289,14 +290,6 @@ static void print_adc_val(struct adc_rules *adc)
 
 		print_sel_type_val(adc);
 
-		RTE_LOG(DEBUG, DP, " ---> Drop :%d\n", adc->gate_status);
-		RTE_LOG(DEBUG, DP, " ---> Rating Group :%u\n",
-			adc->rating_group);
-		RTE_LOG(DEBUG, DP, " ---> Service id :%u\n", adc->service_id);
-		RTE_LOG(DEBUG, DP, " ---> Precedence :%u\n", adc->precedence);
-		RTE_LOG(DEBUG, DP, " ---> Meter profile index :%d\n",
-				adc->mtr_profile_index);
-		RTE_LOG(DEBUG, DP, " ---> Sponsor id :%s\n", adc->sponsor_id);
 		RTE_LOG(DEBUG, DP, "=========================================\n\n");
 	}
 }
@@ -342,6 +335,13 @@ static void print_pcc_val(struct pcc_rules *pcc)
 			pcc->qos.ul_mtr_profile_index);
 		RTE_LOG(DEBUG, DP, " ---> dl_mbr_mtr_profile_idx :%d\n",
 			pcc->qos.dl_mtr_profile_index);
+		RTE_LOG(DEBUG, DP, " ---> ADC Index :%d\n",
+			pcc->adc_idx);
+		RTE_LOG(DEBUG, DP, " ---> SDF Index count:%d\n",
+			pcc->sdf_idx_cnt);
+		for(int i =0; i< pcc->sdf_idx_cnt; ++i)
+			RTE_LOG(DEBUG, DP, " ---> SDF IDx [%d]:%d\n",
+				i, pcc->sdf_idx[i]);
 		RTE_LOG(DEBUG, DP, " ---> rule_name:%s\n", pcc->rule_name);
 		RTE_LOG(DEBUG, DP, " ---> sponsor_id:%s\n", pcc->sponsor_id);
 		RTE_LOG(DEBUG, DP, "=========================================\n\n");
@@ -391,8 +391,6 @@ static void print_sdf_val(struct pkt_filter *sdf)
 		case RULE_STRING:
 			RTE_LOG(DEBUG, DP, " ---> pcc_rule_id :%d\n",
 				sdf->pcc_rule_id);
-			RTE_LOG(DEBUG, DP, " ---> precedence :%d\n",
-				sdf->precedence);
 			RTE_LOG(DEBUG, DP, " ---> rule_type :%d\n",
 				sdf->sel_rule_type);
 			RTE_LOG(DEBUG, DP, " ---> rule_str : %s\n",
@@ -415,33 +413,6 @@ static void print_sdf_val(struct pkt_filter *sdf)
 	}
 }
 #endif /*PRINT_NEW_RULE_ENTRY*/
-
-/**
- * @Name : parse_adc_val
- * @arguments :
- * [In] pointer (arm) to zmq rcv structure element
- * [Out] pointer (adc) to adc rules structure element
- * @return : void
- * @Description : Function to parse adc rules values into
- * adc_rules struct.
- * Here parse drop, rating_group, service_id, sponsor_id
- * params values stored into adc_rules struct.
- */
-static void parse_adc_val(char *arm, struct adc_rules *adc)
-{
-	if (arm != NULL && adc != NULL) {
-		adc->gate_status = *(uint8_t *)(arm);
-		adc->rating_group = rte_bswap32(*(uint32_t *)((arm) + 1));
-		adc->service_id = rte_bswap32(*(uint32_t *)((arm) + 5));
-		adc->precedence = rte_bswap32(*(uint32_t *)((arm) + 9));
-		adc->mtr_profile_index =
-			rte_bswap16(*(uint16_t *)(arm + 13 ));
-		strncpy(adc->sponsor_id, (char *)((arm) + 15), MAX_LEN);
-#ifdef PRINT_NEW_RULE_ENTRY
-		print_adc_val(adc);
-#endif
-	}
-}
 
 /**
  * Name : parse_adc_val
@@ -468,16 +439,7 @@ static int parse_adc_buf(int sel_type, char *arm, struct adc_rules *adc)
 		case DOMAIN_NAME:
 			strncpy(adc->u.domain_name, (char *)((arm)+1),
 					*(uint8_t *)(arm));
-			adc->gate_status = *(uint8_t *)(arm + 1 + *(arm));
-			adc->rating_group = *(uint32_t *)(arm + 2 + *((arm)));
-			adc->service_id =
-				rte_bswap32(*(uint32_t *)(arm + 6 + *((arm))));
-			adc->precedence =
-				rte_bswap32(*(uint32_t *)(arm + 10 + *((arm))));
-			adc->mtr_profile_index =
-				rte_bswap16(*(uint16_t *)(arm + 14 + *((arm))));
-			strncpy(adc->sponsor_id, (char *)(arm + 16 + *((arm))),
-					MAX_LEN);
+
 #ifdef PRINT_NEW_RULE_ENTRY
 				print_adc_val(adc);
 #endif
@@ -488,13 +450,17 @@ static int parse_adc_buf(int sel_type, char *arm, struct adc_rules *adc)
 				ntohl(*(uint32_t *)(arm));
 			adc->u.domain_prefix.prefix =
 				rte_bswap16(*(uint16_t *)((arm) + 4));
-			parse_adc_val((char *)((arm) + 6), adc);
+#ifdef PRINT_NEW_RULE_ENTRY
+				print_adc_val(adc);
+#endif
 			return 0;
 
 		case DOMAIN_IP_ADDR:
 			adc->u.domain_ip.u.ipv4_addr =
 				ntohl(*(uint32_t *)(arm));
-			parse_adc_val((char *)((arm) + 4), adc);
+#ifdef PRINT_NEW_RULE_ENTRY
+				print_adc_val(adc);
+#endif
 			return 0;
 
 		default:
@@ -506,6 +472,28 @@ static int parse_adc_buf(int sel_type, char *arm, struct adc_rules *adc)
 	return -1;
 }
 
+/**
+ * @Name : get_sdf_indices
+ * @argument :
+ * 	[IN] sdf_idx : String containing comma separater SDF index values
+ * 	[OUT] out_sdf_idx : Array of integers converted from sdf_idx
+ * @return : 0 - success, -1 fail
+ * @Description : Convert sdf_idx array in to array of integers for SDF index
+ * values.
+ * Sample input : "[0, 1, 2, 3]"
+ */
+static uint32_t
+get_sdf_indices(char *sdf_idx, uint32_t *out_sdf_idx)
+{
+	char *tmp = strtok (sdf_idx,",");
+	int i = 0;
+
+	while ((NULL != tmp) && (i < MAX_SDF_IDX_COUNT)) {
+		out_sdf_idx[i++] = atoi(tmp);
+		tmp = strtok (NULL, ",");
+	}
+	return i;
+}
 
 /**
  * @Name : zmq_buf_process
@@ -631,7 +619,6 @@ zmq_mbuf_process(struct zmqbuf *zmqmsgbuf_rx, int zmqmsglen)
 		adc->sel_type = *(uint8_t *)(buf);
 
 		adc->rule_id = rule_num++;
-		memset(adc->rule_name, 0, MAX_LEN);
 
 		ret = parse_adc_buf(adc->sel_type, (((char *)(buf) + 1)), adc);
 
@@ -651,6 +638,8 @@ zmq_mbuf_process(struct zmqbuf *zmqmsgbuf_rx, int zmqmsglen)
 		struct pcc_rules_t *pcc_t =
 			&(zmqmsgbuf_rx->msg_union.pcc_rules_m);
 		struct pcc_rules *pcc = &(rbuf->msg_union.pcc_entry);
+		uint8_t sdf_idx[MAX_SDF_STR_LEN]={0};
+		uint8_t len=0, offset = 0;
 
 		rbuf->mtype = MSG_PCC_TBL_ADD;
 		rbuf->dp_id.id = DPN_ID;
@@ -670,16 +659,36 @@ zmq_mbuf_process(struct zmqbuf *zmqmsgbuf_rx, int zmqmsglen)
 		pcc->qos.ul_mtr_profile_index = rte_bswap16(pcc_t->ul_mtr_profile_idx);
 		pcc->qos.dl_mtr_profile_index = rte_bswap16(pcc_t->dl_mtr_profile_idx);
 		pcc->redirect_info.info = pcc_t->redirect_info;
+		pcc->adc_idx = rte_bswap32(pcc_t->adc_idx);
 
-		/*
+		/**
 		 * ref.table no 12 PCC table info will help know the code
+		 * len(SDF_FILTER_IDX), 0 : [0-4]
+		 * SDF_FILTER_IDX, 5: [5 - len1]
+		 * len(RULE_NAME), 5 + len1 :
+		 * RULE_NAME, [5+len1] + 5
+		 * len(SPONSOR_ID),  [5+len1] + [ 5 + len2]
+		 * SPONSOR_ID) [5+len1] + [5+len2] + 5
 		 */
-		strncpy(pcc->rule_name, (char *)((&(pcc_t->redirect_info)) + 5),
-				MAX_LEN);
-		strncpy(pcc->sponsor_id,
-				(char *)(((&(pcc_t->redirect_info)) + 8 +
-						*(uint8_t *)((&(pcc_t->redirect_info))
-							+ 4))), MAX_LEN);
+		strncpy(sdf_idx, ((char *)(&(pcc_t->adc_idx))+5),
+					*(uint8_t *)(&(pcc_t->adc_idx)+1));
+
+		offset = *(uint8_t *)((char *)(&(pcc_t->adc_idx))+ 5 +
+							*(uint8_t *)(&(pcc_t->adc_idx)+1));
+
+		strncpy(pcc->rule_name, ((char *)(&(pcc_t->adc_idx)) + 6 +
+					*(uint8_t *)(&(pcc_t->adc_idx)+1)), offset);
+
+		strncpy(pcc->sponsor_id, ((char *)(&(pcc_t->adc_idx)) + 7 +
+					offset + *(uint8_t *)(&(pcc_t->adc_idx)+1)), MAX_LEN);
+
+		len = *(uint8_t *)(&(pcc_t->adc_idx)+1);
+
+		/**sdf indices are present only if adc is not present*/
+		if(-1 == pcc->adc_idx){
+			/* Convert array of sdf index value to integers */
+			pcc->sdf_idx_cnt = get_sdf_indices(sdf_idx, pcc->sdf_idx);
+		}
 #ifdef PRINT_NEW_RULE_ENTRY
 		print_pcc_val(pcc);
 #endif
@@ -725,7 +734,6 @@ zmq_mbuf_process(struct zmqbuf *zmqmsgbuf_rx, int zmqmsglen)
 		rbuf->dp_id.id = DPN_ID;
 
 		sdf->pcc_rule_id = rte_bswap32(sdf_t->pcc_rule_id);
-		sdf->precedence = rte_bswap32(sdf_t->precedence);
 		sdf->sel_rule_type = sdf_t->rule_type;
 
 		switch (sdf->sel_rule_type) {

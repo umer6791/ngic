@@ -28,7 +28,7 @@
 #define DEFAULT_CDR_PATH  "./cdr/"
 
 #define CDR_TIME_FIELD_INDEX 1
-#define NUM_CDR_FIELDS       19
+#define NUM_CDR_FIELDS       17
 
 #define RECORD_TIME_FORMAT "%Y%m%d%H%M%S"
 #define RECORD_TIME_LENGTH 16 /* buffer size for RECORD_TIME_FORMAT-ed string */

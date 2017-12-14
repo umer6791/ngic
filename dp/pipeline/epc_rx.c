@@ -78,13 +78,20 @@ static inline void epc_s1u_rx_set_port_id(struct rte_mbuf *m)
 					      ip_len];
 		if (likely(udph->dst_port == htons(2152))) {
 			/* TODO: Inner could be ipv6 ? */
+
+			RTE_LOG(DEBUG, EPC, "Function:%s::\n\t"
+					 "gtpu_hdrsz= %lu\n",
+					 __func__, sizeof(struct gtpu_hdr));
+
 			struct ipv4_hdr *inner_ipv4_hdr =
 			    (struct ipv4_hdr *)RTE_PTR_ADD(udph,
 							   UDP_HDR_SIZE +
 							   sizeof(struct
 								  gtpu_hdr));
+
 			const uint32_t *p =
 			    (const uint32_t *)&inner_ipv4_hdr->src_addr;
+
 			RTE_LOG(DEBUG, EPC, "gtpu packet\n");
 			*port_id_offset = 0;
 
@@ -139,8 +146,16 @@ static inline void epc_sgi_rx_set_port_id(struct rte_mbuf *m)
 		ipv4_packet = 0;
 	}
 
-	*port_id_offset = ipv4_packet &&
-			((ipv4_hdr->dst_addr != app.sgi_ip) && !bcast) ? 0 : 1;
+	if (app.spgw_cfg == SGWU) {
+		*port_id_offset = ipv4_packet &&
+				((ipv4_hdr->dst_addr == app.s5s8_sgwu_ip) &&
+				 !bcast) ? 0 : 1;
+	} else {
+		*port_id_offset = ipv4_packet &&
+				((ipv4_hdr->dst_addr != app.sgi_ip) &&
+				 !bcast) ? 0 : 1;
+	}
+
 	if (likely(!*port_id_offset)) {
 		const uint32_t *p = (const uint32_t *)&ipv4_hdr->dst_addr;
 
@@ -175,9 +190,33 @@ void epc_rx_init(struct epc_rx_params *param, int core, uint8_t port_id)
 {
 	struct rte_pipeline *p;
 	unsigned i;
+	uint32_t east_port, west_port;
 
-	if (port_id != app.sgi_port && port_id != app.s1u_port)
-		rte_panic("Unknown port id %d\n", port_id);
+	switch (app.spgw_cfg) {
+		case SGWU:
+			if (port_id != app.s5s8_sgwu_port && port_id != app.s1u_port)
+				rte_panic("%s: Unknown port no %d", __func__, port_id);
+			east_port = app.s5s8_sgwu_port;
+			west_port = app.s1u_port;
+			break;
+
+		case PGWU:
+			if (port_id != app.sgi_port && port_id != app.s5s8_pgwu_port)
+				rte_panic("%s: Unknown port no %d", __func__, port_id);
+			east_port = app.sgi_port;
+			west_port = app.s5s8_pgwu_port;
+			break;
+
+		case SPGWU:
+			if (port_id != app.sgi_port && port_id != app.s1u_port)
+				rte_panic("%s: Unknown port no %d", __func__, port_id);
+			east_port = app.sgi_port;
+			west_port = app.s1u_port;
+			break;
+
+		default:
+			rte_exit(EXIT_FAILURE, "Invalid DP type(SPGW_CFG).\n");
+	}
 
 	memset(param, 0, sizeof(*param));
 
@@ -210,9 +249,9 @@ void epc_rx_init(struct epc_rx_params *param, int core, uint8_t port_id)
 		.burst_size = epc_app.burst_size_rx_read,
 	};
 #ifndef SKIP_LB_GTPU_AH
-	if (port_id == app.s1u_port)
+	if (port_id == west_port)
 		port_params.f_action = epc_s1u_rx_port_in_action_handler;
-	else if (port_id == app.sgi_port)
+	else if (port_id == east_port)
 #endif
 		port_params.f_action = epc_sgi_rx_port_in_action_handler;
 

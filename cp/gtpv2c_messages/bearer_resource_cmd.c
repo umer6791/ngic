@@ -118,7 +118,8 @@ parse_packet_filter(create_pkt_filter *cpf, pkt_fltr *pf)
 {
 	reset_packet_filter(pf);
 
-	pf->precedence = cpf->precedence;
+	/*TODO: Precedence is removed from SDF.
+	 * Check impact in this case*/
 	pf->direction = cpf->direction;
 
 	packet_filter_component *filter_component =
@@ -315,7 +316,9 @@ install_packet_filters(eps_bearer *ded_bearer,
 
 		int dp_packet_filter_id = get_packet_filter_id(&pf.pkt_fltr);
 
-		pf.pkt_fltr.rating_group = ded_bearer->qos.qos.qci;
+		/*TODO : rating group is moved to PCC.
+		 * Handle appropriately here. */
+		/*pf.pkt_fltr.rating_group = ded_bearer->qos.qos.qci;*/
 
 		if (dp_packet_filter_id == -ENOENT) {
 			fprintf(stderr,

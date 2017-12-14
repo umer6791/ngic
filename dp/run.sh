@@ -19,13 +19,51 @@ source ../config/cdr.cfg
 APP_PATH="./build"
 APP="ngic_dataplane"
 LOG_LEVEL=1
+COREMASK="0xfe"
 
-ARGS="-c 0xfff800000 -n 4 --socket-mem 0,$MEMORY \
-            --file-prefix dp -w $PORT0 -w $PORT1 -- \
-            --s1u_ip $S1U_IP --s1u_mac $S1U_MAC \
-            --sgi_ip $SGI_IP --sgi_mac $SGI_MAC \
-            --num_workers $NUM_WORKER --log $LOG_LEVEL\
-			--numa $NUMA"
+if [ "${SPGW_CFG}" == "01" ]; then
+
+	ARGS="-c $COREMASK -n 4 --socket-mem $MEMORY,0	\
+				--file-prefix dp	\
+				-w $S1U_PORT -w $S5S8_SGWU_PORT --	\
+				--s1u_ip $S1U_IP	\
+				--s1u_mac $S1U_MAC	\
+				--s5s8_sgwu_ip $S5S8_SGWU_IP	\
+				--s5s8_sgwu_mac $S5S8_SGWU_MAC	\
+				--num_workers $NUM_WORKER 	\
+				--log $LOG_LEVEL	\
+				--numa $NUMA	\
+				--spgw_cfg $SPGW_CFG"
+
+elif [ "${SPGW_CFG}" == "02" ]; then
+
+	ARGS="-c $COREMASK -n 4 --socket-mem $MEMORY,0 	\
+				--file-prefix dp	\
+				-w $S5S8_PGWU_PORT -w $SGI_PORT	--	\
+				--s5s8_pgwu_ip $S5S8_PGWU_IP	\
+				--s5s8_pgwu_mac $S5S8_PGWU_MAC	\
+				--sgi_ip $SGI_IP	\
+				--sgi_mac $SGI_MAC	\
+				--num_workers $NUM_WORKER	\
+				--log $LOG_LEVEL	\
+				--numa $NUMA	\
+				--spgw_cfg $SPGW_CFG"
+
+elif [ "${SPGW_CFG}" == "03" ]; then
+
+	ARGS="-c $COREMASK -n 4 --socket-mem $MEMORY,0 	\
+				--file-prefix dp	\
+				-w $S1U_PORT -w $SGI_PORT --	\
+				--s1u_ip $S1U_IP	\
+				--s1u_mac $S1U_MAC	\
+				--sgi_ip $SGI_IP	\
+				--sgi_mac $SGI_MAC	\
+				--num_workers $NUM_WORKER	\
+				--log $LOG_LEVEL	\
+				--numa $NUMA	\
+				--spgw_cfg $SPGW_CFG"
+fi
+
 
 if [ -n "${S1U_GW_IP}" ]; then
 	ARGS="$ARGS --s1u_gw_ip $S1U_GW_IP"
@@ -68,6 +106,7 @@ elif [ "$1" == "log" ]; then
 	fi
 	trap "killall $APP; exit" SIGINT
 	stdbuf -oL -eL $APP_PATH/$APP $ARGS </dev/null &>$FILE & tail -f $FILE
+	#valgrind --tool=memcheck --leak-check=full --log-file="sgwu_dp1.logs" $APP_PATH/$APP $ARGS
 
 elif [ "$1" == "debug" ]; then
 

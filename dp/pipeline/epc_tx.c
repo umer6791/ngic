@@ -52,8 +52,25 @@ void epc_tx_init(struct epc_tx_params *param, int core, uint8_t port)
 			"****** performance may be degradated !!!!!!!!!!! *************\n");
 	}
 
-	if (port != app.s1u_port && port != app.sgi_port)
-		rte_panic("%s: Unknown port no %d", __func__, port);
+	switch (app.spgw_cfg) {
+		case SGWU:
+			if (port != app.s1u_port && port != app.s5s8_sgwu_port)
+				rte_panic("%s: Unknown port no %d", __func__, port);
+			break;
+
+		case PGWU:
+			if (port != app.s5s8_pgwu_port && port != app.sgi_port)
+				rte_panic("%s: Unknown port no %d", __func__, port);
+			break;
+
+		case SPGWU:
+			if (port != app.s1u_port && port != app.sgi_port)
+				rte_panic("%s: Unknown port no %d", __func__, port);
+			break;
+
+		default:
+			rte_exit(EXIT_FAILURE, "Invalid DP type(SPGW_CFG).\n");
+	}
 
 	memset(param, 0, sizeof(*param));
 

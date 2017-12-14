@@ -85,11 +85,14 @@ ifneq (,$(findstring SDN_ODL_BUILD, $(CFLAGS)))
 	SRCS-y += $(SRCDIR)/../interface/zmq/zmqpub.o
 	LDFLAGS += -L/usr/local/lib -lzmq
 endif
-CFLAGS += -g -O3
+CFLAGS += -O3
 #CFLAGS += -g -O0
 
 # Un-comment below line to read fake cp config.
 #CFLAGS += -DSIMU_CP
+
+# ASR- Un-comment below line to enable GTPU HEADER Sequence Number option.
+#CFLAGS += -DGTPU_HDR_SEQNB
 
 # ASR- Un-comment below line to enable PCC, ADC, CDR, FILTERING, METERING pipeline stages.
 #CFLAGS += -DINCLUDE_PIPELINE_STAGE
@@ -162,6 +165,11 @@ CFLAGS += -DHYPERSCAN_DPI
 # Un-comment below line to configure DP Tables from DP app.
 CFLAGS += -DDP_TABLE_CONFIG
 
+CFLAGS += -DSTATIC_ARP
+
+#un-comment below line to generate pcap on east-west interfaces
+#CFLAGS += -DPCAP_GEN
+
 CFLAGS += -Werror
 CFLAGS += -Wunused-variable
 CFLAGS_config.o := -D_GNU_SOURCE
@@ -179,5 +187,7 @@ LDFLAGS += -L$(HYPERSCANDIR)/build/lib
 LDFLAGS += -lexpressionutil -lhs -lhs_runtime -lstdc++ -lm -lcrypto
 
 LDFLAGS += -lrte_pmd_af_packet
+
+LDFLAGS += -lpcap
 
 include $(RTE_SDK)/mk/rte.extapp.mk

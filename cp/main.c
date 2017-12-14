@@ -60,24 +60,49 @@
 #define PCAP_TTL                     (64)
 #define PCAP_VIHL                    (0x0045)
 
-#define S11_SGW_IP_SET               (0x01)
-#define S11_MME_IP_SET               (0x02)
-#define S1U_SGW_IP_SET               (0x04)
-#define IP_POOL_IP_SET               (0x08)
-#define IP_POOL_MASK_SET             (0x10)
-#define APN_NAME_SET                 (0x20)
-#define REQ_ARGS                     (S11_SGW_IP_SET | S11_MME_IP_SET | \
-					S1U_SGW_IP_SET | IP_POOL_IP_SET | \
-					IP_POOL_MASK_SET | APN_NAME_SET)
+#define S11_MME_IP_SET			(0x0001)
+#define S11_SGW_IP_SET			(0x0002)
+#define S5S8_SGWC_IP_SET		(0x0004)
+#define S5S8_PGWC_IP_SET		(0x0008)
+#define S1U_SGW_IP_SET			(0x0010)
+#define S5S8_SGWU_IP_SET		(0x0020)
+#define S5S8_PGWU_IP_SET		(0x0040)
+#define IP_POOL_IP_SET			(0x0080)
+#define IP_POOL_MASK_SET		(0x0100)
+#define APN_NAME_SET			(0x0200)
+#define LOG_LEVEL_SET			(0x0300)
+#define REQ_ARGS				(S11_MME_IP_SET | \
+								S11_SGW_IP_SET | S5S8_SGWC_IP_SET | \
+								S5S8_PGWC_IP_SET | S5S8_PGWU_IP_SET | \
+								S1U_SGW_IP_SET | IP_POOL_IP_SET | \
+								IP_POOL_MASK_SET | APN_NAME_SET | \
+								LOG_LEVEL_SET)
 
+#define RTE_LOGTYPE_CP RTE_LOGTYPE_USER4
+
+enum cp_config spgw_cfg;
 int s11_fd = -1;
 int s11_pcap_fd = -1;
+int s5s8_sgwc_fd = -1;
+int s5s8_pgwc_fd = -1;
 
 pcap_dumper_t *pcap_dumper;
 pcap_t *pcap_reader;
 
 struct cp_params cp_params;
+/**
+ * Setting/enable CP RTE LOG_LEVEL.
+ */
+static void
+set_log_level(uint8_t log_level)
+{
+	if (log_level == DEBUG)
+		rte_set_log_level(RTE_LOG_DEBUG);
+	else if (log_level == NOTICE)
+		rte_set_log_level(RTE_LOG_NOTICE);
+	else rte_set_log_level(RTE_LOG_INFO);
 
+}
 
 /**
  * Parses c-string containing dotted decimal ipv4 and stores the
@@ -113,12 +138,18 @@ parse_arg(int argc, char **argv)
 	pcap_t *pcap;
 
 	const struct option long_options[] = {
-	  {"s11_sgw_ip",  required_argument, NULL, 's'},
+	  {"spgw_cfg",  required_argument, NULL, 'd'},
 	  {"s11_mme_ip",  required_argument, NULL, 'm'},
+	  {"s11_sgw_ip",  required_argument, NULL, 's'},
+	  {"s5s8_sgwc_ip",  required_argument, NULL, 'r'},
+	  {"s5s8_pgwc_ip",  required_argument, NULL, 'g'},
 	  {"s1u_sgw_ip",  required_argument, NULL, 'w'},
+	  {"s5s8_sgwu_ip",  required_argument, NULL, 'v'},
+	  {"s5s8_pgwu_ip",  required_argument, NULL, 'u'},
 	  {"ip_pool_ip",  required_argument, NULL, 'i'},
 	  {"ip_pool_mask", required_argument, NULL, 'p'},
 	  {"apn_name",   required_argument, NULL, 'a'},
+	  {"log_level",   required_argument, NULL, 'l'},
 	  {"pcap_file_in", required_argument, NULL, 'x'},
 	  {"pcap_file_out", required_argument, NULL, 'y'},
 	  {0, 0, 0, 0}
@@ -127,20 +158,44 @@ parse_arg(int argc, char **argv)
 	do {
 		int option_index = 0;
 
-		c = getopt_long(argc, argv, "s:m:w:i:p:a:x:y:", long_options,
+		c = getopt_long(argc, argv, "d:m:s:r:g:w:v:u:i:p:a:l:x:y:", long_options,
 		    &option_index);
 
 		if (c == -1)
 			break;
 
 		switch (c) {
-		case 's':
-			parse_arg_ip(optarg, &s11_sgw_ip);
-			args_set |= S11_SGW_IP_SET;
+		case 'd':
+			spgw_cfg = (uint8_t)atoi(optarg);
+			args_set |= S11_MME_IP_SET;
 			break;
 		case 'm':
 			parse_arg_ip(optarg, &s11_mme_ip);
 			args_set |= S11_MME_IP_SET;
+			break;
+		case 's':
+			parse_arg_ip(optarg, &s11_sgw_ip);
+			args_set |= S11_SGW_IP_SET;
+			break;
+		case 'r':
+			parse_arg_ip(optarg, &s5s8_sgwc_ip);
+			args_set |= S5S8_SGWC_IP_SET;
+			break;
+		case 'g':
+			parse_arg_ip(optarg, &s5s8_pgwc_ip);
+			args_set |= S5S8_PGWC_IP_SET;
+			break;
+		case 'w':
+			parse_arg_ip(optarg, &s1u_sgw_ip);
+			args_set |= IP_POOL_MASK_SET;
+			break;
+		case 'v':
+			parse_arg_ip(optarg, &s5s8_sgwu_ip);
+			args_set |= S5S8_SGWU_IP_SET;
+			break;
+		case 'u':
+			parse_arg_ip(optarg, &s5s8_pgwu_ip);
+			args_set |= S5S8_PGWU_IP_SET;
 			break;
 		case 'i':
 			set_ip_pool_ip(optarg);
@@ -150,13 +205,13 @@ parse_arg(int argc, char **argv)
 			set_ip_pool_mask(optarg);
 			args_set |= IP_POOL_IP_SET;
 			break;
-		case 'w':
-			parse_arg_ip(optarg, &s1u_sgw_ip);
-			args_set |= IP_POOL_MASK_SET;
-			break;
 		case 'a':
 			set_apn_name(&one_apn, optarg);
 			args_set |= APN_NAME_SET;
+			break;
+		case 'l':
+			set_log_level((uint8_t)atoi(optarg));
+			args_set |= LOG_LEVEL_SET;
 			break;
 		case 'x':
 			pcap_reader = pcap_open_offline(optarg, errbuff);
@@ -213,16 +268,15 @@ initialize_tables_on_dp(void)
 
 }
 
-
 /**
  * @brief Initalizes S11 interface if in use
  */
 static void
 init_s11(void)
 {
-	const in_port_t s11_port = htons(GTPC_UDP_PORT);
-	struct sockaddr_in sgw_s11_sockaddr_in;
 	int ret;
+	s11_mme_sockaddr.sin_port = htons(GTPC_UDP_PORT);
+	s11_port = htons(GTPC_UDP_PORT);
 
 	if (pcap_reader != NULL && pcap_dumper != NULL)
 		return;
@@ -232,23 +286,118 @@ init_s11(void)
 	if (s11_fd < 0)
 		rte_panic("Socket call error : %s", strerror(errno));
 
-	bzero(sgw_s11_sockaddr_in.sin_zero,
-			sizeof(sgw_s11_sockaddr_in.sin_zero));
-	sgw_s11_sockaddr_in.sin_family = AF_INET;
-	sgw_s11_sockaddr_in.sin_port = s11_port;
-	sgw_s11_sockaddr_in.sin_addr = s11_sgw_ip;
+	bzero(s11_sgw_sockaddr.sin_zero,
+			sizeof(s11_sgw_sockaddr.sin_zero));
+	s11_sgw_sockaddr.sin_family = AF_INET;
+	s11_sgw_sockaddr.sin_port = s11_port;
+	s11_sgw_sockaddr.sin_addr = s11_sgw_ip;
 
-	ret = bind(s11_fd, (struct sockaddr *) &sgw_s11_sockaddr_in,
+	ret = bind(s11_fd, (struct sockaddr *) &s11_sgw_sockaddr,
 			    sizeof(struct sockaddr_in));
+	RTE_LOG(INFO, CP, "NGIC- main.c::init_s11()"
+			"\n\ts11_fd= %d :: "
+			"\n\ts11_sgw_ip= %s : s11_port= %d\n",
+			s11_fd, inet_ntoa(s11_sgw_ip), ntohs(s11_port));
 
 	if (ret < 0) {
 		rte_panic("Bind error for %s:%u - %s\n",
-			inet_ntoa(sgw_s11_sockaddr_in.sin_addr),
-			ntohs(sgw_s11_sockaddr_in.sin_port),
+			inet_ntoa(s11_sgw_sockaddr.sin_addr),
+			ntohs(s11_sgw_sockaddr.sin_port),
 			strerror(errno));
 	}
 }
 
+/**
+ * @brief Initalizes s5s8_sgwc interface if in use
+ */
+static void
+init_s5s8_sgwc(void)
+{
+	int ret;
+	s5s8_sgwc_port = htons(GTPC_UDP_PORT);
+
+	if (pcap_reader != NULL && pcap_dumper != NULL)
+		return;
+
+	s5s8_sgwc_fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+	if (s5s8_sgwc_fd < 0)
+		rte_panic("Socket call error : %s", strerror(errno));
+
+	bzero(s5s8_sgwc_sockaddr.sin_zero,
+			sizeof(s5s8_sgwc_sockaddr.sin_zero));
+	s5s8_sgwc_sockaddr.sin_family = AF_INET;
+	s5s8_sgwc_sockaddr.sin_port = s5s8_sgwc_port;
+	s5s8_sgwc_sockaddr.sin_addr = s5s8_sgwc_ip;
+
+	ret = bind(s5s8_sgwc_fd, (struct sockaddr *) &s5s8_sgwc_sockaddr,
+			    sizeof(struct sockaddr_in));
+	RTE_LOG(INFO, CP, "NGIC- main.c::init_s5s8_sgwc()"
+			"\n\ts5s8_sgwc_fd= %d :: "
+			"\n\ts5s8_sgwc_ip= %s : s5s8_sgwc_port= %d\n",
+			s5s8_sgwc_fd, inet_ntoa(s5s8_sgwc_ip),
+			ntohs(s5s8_sgwc_port));
+
+	if (ret < 0) {
+		rte_panic("Bind error for %s:%u - %s\n",
+			inet_ntoa(s5s8_sgwc_sockaddr.sin_addr),
+			ntohs(s5s8_sgwc_sockaddr.sin_port),
+			strerror(errno));
+	}
+	/* Initialize peer pgwc inteface for sendto(.., dest_addr) */
+	s5s8_pgwc_port = htons(GTPC_UDP_PORT);
+	bzero(s5s8_pgwc_sockaddr.sin_zero,
+			sizeof(s5s8_pgwc_sockaddr.sin_zero));
+	s5s8_pgwc_sockaddr.sin_family = AF_INET;
+	s5s8_pgwc_sockaddr.sin_port = s5s8_pgwc_port;
+	s5s8_pgwc_sockaddr.sin_addr = s5s8_pgwc_ip;
+}
+
+/**
+ * @brief Initalizes s5s8_pgwc interface if in use
+ */
+static void
+init_s5s8_pgwc(void)
+{
+	int ret;
+	s5s8_pgwc_port = htons(GTPC_UDP_PORT);
+
+	if (pcap_reader != NULL && pcap_dumper != NULL)
+		return;
+
+	s5s8_pgwc_fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+	if (s5s8_pgwc_fd < 0)
+		rte_panic("Socket call error : %s", strerror(errno));
+
+	bzero(s5s8_pgwc_sockaddr.sin_zero,
+			sizeof(s5s8_pgwc_sockaddr.sin_zero));
+	s5s8_pgwc_sockaddr.sin_family = AF_INET;
+	s5s8_pgwc_sockaddr.sin_port = s5s8_pgwc_port;
+	s5s8_pgwc_sockaddr.sin_addr = s5s8_pgwc_ip;
+
+	ret = bind(s5s8_pgwc_fd, (struct sockaddr *) &s5s8_pgwc_sockaddr,
+			    sizeof(struct sockaddr_in));
+	RTE_LOG(INFO, CP, "NGIC- main.c::init_s5s8_sgwc()"
+			"\n\ts5s8_pgwc_fd= %d :: "
+			"\n\ts5s8_pgwc_ip= %s : s5s8_pgwc_port= %d\n",
+			s5s8_pgwc_fd, inet_ntoa(s5s8_pgwc_ip),
+			ntohs(s5s8_pgwc_port));
+
+	if (ret < 0) {
+		rte_panic("Bind error for %s:%u - %s\n",
+			inet_ntoa(s5s8_pgwc_sockaddr.sin_addr),
+			ntohs(s5s8_pgwc_sockaddr.sin_port),
+			strerror(errno));
+	}
+	/* Initialize peer sgwc inteface for sendto(.., dest_addr) */
+	s5s8_sgwc_port = htons(GTPC_UDP_PORT);
+	bzero(s5s8_sgwc_sockaddr.sin_zero,
+			sizeof(s5s8_sgwc_sockaddr.sin_zero));
+	s5s8_sgwc_sockaddr.sin_family = AF_INET;
+	s5s8_sgwc_sockaddr.sin_port = s5s8_sgwc_port;
+	s5s8_sgwc_sockaddr.sin_addr = s5s8_sgwc_ip;
+}
 
 /**
  * @brief
@@ -258,7 +407,22 @@ init_s11(void)
 static void
 init_cp(void)
 {
-	init_s11();
+	switch (spgw_cfg) {
+	case SGWC:
+		init_s11();
+		init_s5s8_sgwc();
+		break;
+	case PGWC:
+		init_s5s8_pgwc();
+		break;
+	case SPGWC:
+		init_s11();
+		break;
+	default:
+		rte_panic("main.c::init_cp()-"
+				"Unknown spgw_cfg= %u.", spgw_cfg);
+		break;
+	}
 
 	iface_module_constructor();
 
@@ -277,13 +441,33 @@ init_cp(void)
 	create_ue_hash();
 }
 
-
 /**
  * @brief
- * Writes packet at @tx_buf of length @payload_length to pcap file specified
- * in @pcap_dumper (global)
+ * Util to send or dump gtpv2c messages
  */
 static void
+gtpv2c_send(int gtpv2c_if_fd, uint8_t *gtpv2c_tx_buf,
+		uint16_t gtpv2c_pyld_len, struct sockaddr *dest_addr,
+		socklen_t dest_addr_len)
+{
+	int bytes_tx;
+	if (pcap_dumper) {
+		dump_pcap(gtpv2c_pyld_len, gtpv2c_tx_buf);
+	} else {
+		bytes_tx = sendto(gtpv2c_if_fd, gtpv2c_tx_buf, gtpv2c_pyld_len, 0,
+			(struct sockaddr *) dest_addr, dest_addr_len);
+		RTE_LOG(DEBUG, CP, "NGIC- main.c::gtpv2c_send()"
+			"\n\tgtpv2c_if_fd= %d\n", gtpv2c_if_fd);
+
+	if (bytes_tx != (int) gtpv2c_pyld_len) {
+			fprintf(stderr, "Transmitted Incomplete GTPv2c Message:"
+					"%u of %d tx bytes\n",
+					gtpv2c_pyld_len, bytes_tx);
+		}
+	}
+}
+
+void
 dump_pcap(uint16_t payload_length, uint8_t *tx_buf)
 {
 	static struct pcap_pkthdr pcap_tx_header;
@@ -332,22 +516,31 @@ dump_pcap(uint16_t payload_length, uint8_t *tx_buf)
 	fflush(pcap_dump_file(pcap_dumper));
 }
 
-
 void
 control_plane(void)
 {
-	int ret;
-	uint8_t rx_buf[MAX_GTPV2C_UDP_LEN] = { 0 };
-	uint8_t tx_buf[MAX_GTPV2C_UDP_LEN] = { 0 };
-	gtpv2c_header *gtpv2c_rx = (gtpv2c_header *) rx_buf;
-	gtpv2c_header *gtpv2c_tx = (gtpv2c_header *) tx_buf;
+	bzero(&s11_rx_buf, sizeof(s11_rx_buf));
+	bzero(&s11_tx_buf, sizeof(s11_tx_buf));
+	bzero(&s5s8_rx_buf, sizeof(s5s8_rx_buf));
+	bzero(&s5s8_tx_buf, sizeof(s5s8_tx_buf));
+	gtpv2c_header *gtpv2c_s11_rx = (gtpv2c_header *) s11_rx_buf;
+	gtpv2c_header *gtpv2c_s11_tx = (gtpv2c_header *) s11_tx_buf;
+	gtpv2c_header *gtpv2c_s5s8_rx = (gtpv2c_header *) s5s8_rx_buf;
+	gtpv2c_header *gtpv2c_s5s8_tx = (gtpv2c_header *) s5s8_tx_buf;
 
 	uint16_t payload_length;
-	struct sockaddr_in peer = { .sin_port = 0};
-	socklen_t peer_len = sizeof(peer);
+	socklen_t s11_mme_sockaddr_len = sizeof(s11_mme_sockaddr);
+	socklen_t s5s8_sgwc_sockaddr_len = sizeof(s5s8_sgwc_sockaddr);
+	socklen_t s5s8_pgwc_sockaddr_len = sizeof(s5s8_pgwc_sockaddr);
 
 	uint8_t delay = 0; /*TODO move this when more implemented?*/
-	int bytes_rx, bytes_tx;
+	int bytes_pcap_rx = 0;
+	int bytes_s11_rx = 0;
+	int bytes_s5s8_rx = 0;
+	static uint8_t s11_msgcnt = 0;
+	static uint8_t s5s8_sgwc_msgcnt = 0;
+	static uint8_t s5s8_pgwc_msgcnt = 0;
+	int ret = 0;
 
 	if (pcap_reader) {
 		static struct pcap_pkthdr *pcap_rx_header;
@@ -359,159 +552,585 @@ control_plane(void)
 					" - exiting\n");
 			exit(0);
 		}
-		bytes_rx = pcap_rx_header->caplen
+		bytes_pcap_rx = pcap_rx_header->caplen
 				- (sizeof(struct ether_hdr)
 				+ sizeof(struct ipv4_hdr)
 				+ sizeof(struct udp_hdr));
-		memcpy(gtpv2c_rx, *tmp
+		memcpy(gtpv2c_s11_rx, *tmp
 				+ (sizeof(struct ether_hdr)
 				+ sizeof(struct ipv4_hdr)
-				+ sizeof(struct udp_hdr)), bytes_rx);
+				+ sizeof(struct udp_hdr)), bytes_pcap_rx);
+	}
 
-	} else {
-		bytes_rx = recvfrom(s11_fd, rx_buf,
+	if (spgw_cfg == SGWC) {
+		bytes_s5s8_rx = recvfrom(s5s8_sgwc_fd, s5s8_rx_buf,
 				MAX_GTPV2C_UDP_LEN, MSG_DONTWAIT,
-				(struct sockaddr *) &peer, &peer_len);
-		if (bytes_rx < 0 && (errno == EAGAIN  || errno == EWOULDBLOCK))
+				(struct sockaddr *) &s5s8_sgwc_sockaddr,
+				&s5s8_sgwc_sockaddr_len);
+		if (bytes_s5s8_rx == 0) {
+			fprintf(stderr, "SGWC_s5s8 recvfrom error:"
+					"\n\ton %s:%u - %s\n",
+					inet_ntoa(s5s8_sgwc_sockaddr.sin_addr),
+					s5s8_sgwc_sockaddr.sin_port,
+					strerror(errno));
+		}
+	}
+	if (spgw_cfg == PGWC) {
+		bytes_s5s8_rx = recvfrom(s5s8_pgwc_fd, s5s8_rx_buf,
+				MAX_GTPV2C_UDP_LEN, MSG_DONTWAIT,
+				(struct sockaddr *) &s5s8_sgwc_sockaddr,
+				&s5s8_sgwc_sockaddr_len);
+		if (bytes_s5s8_rx == 0) {
+			fprintf(stderr, "PGWC_s5s8 recvfrom error:"
+					"\n\ton %s:%u - %s\n",
+					inet_ntoa(s5s8_sgwc_sockaddr.sin_addr),
+					s5s8_sgwc_sockaddr.sin_port,
+					strerror(errno));
+		}
+	}
+	if ((spgw_cfg == SGWC) || (spgw_cfg == SPGWC)) {
+			bytes_s11_rx = recvfrom(s11_fd, s11_rx_buf,
+					MAX_GTPV2C_UDP_LEN, MSG_DONTWAIT,
+					(struct sockaddr *) &s11_mme_sockaddr,
+					&s11_mme_sockaddr_len);
+		if (bytes_s11_rx == 0) {
+			fprintf(stderr, "SGWC|SPGWC_s11 recvfrom error:"
+					"\n\ton %s:%u - %s\n",
+					inet_ntoa(s11_mme_sockaddr.sin_addr),
+					s11_mme_sockaddr.sin_port,
+					strerror(errno));
 			return;
+		}
 	}
+	if (
+		(bytes_s5s8_rx < 0) && (bytes_s11_rx < 0) &&
+		(errno == EAGAIN  || errno == EWOULDBLOCK)
+		)
+		return;
 
-	if (bytes_rx == 0) {
-		fprintf(stderr, "recvfrom error for %s:%u - %s\n",
-				inet_ntoa(peer.sin_addr), peer.sin_port,
-				strerror(errno));
-		return;
-	} else if ((unsigned)bytes_rx != (ntohs(gtpv2c_rx->gtpc.length)
-			+ sizeof(gtpv2c_rx->gtpc))) {
-		ret = GTPV2C_CAUSE_INVALID_LENGTH;
-		/* According to 29.274 7.7.7, if message is request,
-		 * reply with cause = GTPV2C_CAUSE_INVALID_LENGTH
-		 *  should be sent - ignoring packet for now
-		 */
-		fprintf(stderr, "Received UDP Payload (%d bytes) with gtpv2c + "
-				"header (%u + %lu) = %lu bytes\n",
-				bytes_rx, ntohs(gtpv2c_rx->gtpc.length),
-				sizeof(gtpv2c_rx->gtpc),
-				ntohs(gtpv2c_rx->gtpc.length)
-				+ sizeof(gtpv2c_rx->gtpc));
-		return;
+	if ((spgw_cfg == SGWC) || (spgw_cfg == PGWC)) {
+		if ((bytes_s5s8_rx > 0) &&
+			 (unsigned)bytes_s5s8_rx != (
+			 ntohs(gtpv2c_s5s8_rx->gtpc.length)
+			 + sizeof(gtpv2c_s5s8_rx->gtpc))
+			) {
+			ret = GTPV2C_CAUSE_INVALID_LENGTH;
+			/* According to 29.274 7.7.7, if message is request,
+			 * reply with cause = GTPV2C_CAUSE_INVALID_LENGTH
+			 *  should be sent - ignoring packet for now
+			 */
+			fprintf(stderr, "SGWC|PGWC_s5s8 Received UDP Payload:"
+					"\n\t(%d bytes) with gtpv2c + "
+					"header (%u + %lu) = %lu bytes\n",
+					bytes_s5s8_rx, ntohs(gtpv2c_s5s8_rx->gtpc.length),
+					sizeof(gtpv2c_s5s8_rx->gtpc),
+					ntohs(gtpv2c_s5s8_rx->gtpc.length)
+					+ sizeof(gtpv2c_s5s8_rx->gtpc));
+		}
 	}
-
-	++cp_stats.rx;
-
-	if (!pcap_reader && (peer.sin_addr.s_addr != s11_mme_ip.s_addr
-			|| gtpv2c_rx->gtpc.version != GTP_VERSION_GTPV2C)) {
-		fprintf(stderr, "Discarding packet from %s:%u - "
-				"Expected S11_MME_IP = %s\n",
-				inet_ntoa(peer.sin_addr), ntohs(peer.sin_port),
-				inet_ntoa(s11_mme_ip));
-		return;
-	}
-
-	switch (gtpv2c_rx->gtpc.type) {
-	case GTP_CREATE_SESSION_REQ:
-		ret = process_create_session_request(
-				gtpv2c_rx, gtpv2c_tx);
-		break;
-	case GTP_DELETE_SESSION_REQ:
-		ret = process_delete_session_request(
-				gtpv2c_rx, gtpv2c_tx);
-		break;
-	case GTP_MODIFY_BEARER_REQ:
-		ret = process_modify_bearer_request(
-				gtpv2c_rx, gtpv2c_tx);
-		break;
-	case GTP_RELEASE_ACCESS_BEARERS_REQ:
-		ret = process_release_access_bearer_request(
-				gtpv2c_rx, gtpv2c_tx);
-		break;
-	case GTP_BEARER_RESOURCE_CMD:
-		ret = process_bearer_resource_command(
-				gtpv2c_rx, gtpv2c_tx);
-		break;
-	case GTP_ECHO_REQ:
-		ret = process_echo_request(gtpv2c_rx, gtpv2c_tx);
-		break;
-	case GTP_CREATE_BEARER_RSP:
-		ret = process_create_bearer_response(gtpv2c_rx);
-		break;
-	case GTP_DELETE_BEARER_RSP:
-		ret = process_delete_bearer_response(gtpv2c_rx);
-		break;
-	case GTP_DOWNLINK_DATA_NOTIFICATION_ACK:
-		ret = process_ddn_ack(gtpv2c_rx, &delay);
-		/* TODO something with delay if set */
-		break;
-	default:
-		fprintf(stderr, "Received unprocessed GTPv2c Message Type: "
-				"%s (%u 0x%x)... Discarding\n",
-				gtp_type_str(gtpv2c_rx->gtpc.type),
-				gtpv2c_rx->gtpc.type,
-				gtpv2c_rx->gtpc.type);
-		return;
-	}
-
-	if (ret) {
-		fprintf(stderr, "Error on message %s: (%d) %s\n",
-				gtp_type_str(gtpv2c_rx->gtpc.type), ret,
-				(ret < 0 ? strerror(-ret) : cause_str(ret)));
-		/* S11 error handling not implemented */
-		return;
-	}
-
-	switch (gtpv2c_rx->gtpc.type) {
-	case GTP_CREATE_BEARER_RSP:
-		cp_stats.create_bearer++;
-		return;
-	case GTP_DELETE_BEARER_RSP:
-		cp_stats.delete_bearer++;
-		return;
-	case GTP_DOWNLINK_DATA_NOTIFICATION_ACK:
-		cp_stats.ddn_ack++;
-		return;
-	}
-
-	payload_length = ntohs(gtpv2c_tx->gtpc.length)
-			+ sizeof(gtpv2c_tx->gtpc);
-
-	if (pcap_dumper) {
-		dump_pcap(payload_length, tx_buf);
-	} else {
-		bytes_tx = sendto(s11_fd, tx_buf, payload_length, 0,
-			(struct sockaddr *) &peer, peer_len);
-
-		if (bytes_tx != (int) payload_length) {
-			fprintf(stderr, "Transmitted Incomplete GTPv2c Message:"
-					"%u of %d tx bytes\n",
-					payload_length, bytes_tx);
+	if ((spgw_cfg == SGWC) || (spgw_cfg == SPGWC)) {
+		if (
+			 (bytes_s11_rx > 0) &&
+			 (unsigned)bytes_s11_rx !=
+			 (ntohs(gtpv2c_s11_rx->gtpc.length)
+			 + sizeof(gtpv2c_s11_rx->gtpc))
+			) {
+			ret = GTPV2C_CAUSE_INVALID_LENGTH;
+			/* According to 29.274 7.7.7, if message is request,
+			 * reply with cause = GTPV2C_CAUSE_INVALID_LENGTH
+			 *  should be sent - ignoring packet for now
+			 */
+			fprintf(stderr, "SGWC|SPGWC_s11 Received UDP Payload:"
+					"\n\t(%d bytes) with gtpv2c + "
+					"header (%u + %lu) = %lu bytes\n",
+					bytes_s11_rx, ntohs(gtpv2c_s11_rx->gtpc.length),
+					sizeof(gtpv2c_s11_rx->gtpc),
+					ntohs(gtpv2c_s11_rx->gtpc.length)
+					+ sizeof(gtpv2c_s11_rx->gtpc));
+			return;
 		}
 	}
 
-	++cp_stats.tx;
+	if ((bytes_s5s8_rx > 0) || (bytes_s11_rx > 0))
+		++cp_stats.rx;
 
-	switch (gtpv2c_rx->gtpc.type) {
-	case GTP_CREATE_SESSION_REQ:
-		cp_stats.create_session++;
-		break;
-	case GTP_DELETE_SESSION_REQ:
-		cp_stats.delete_session++;
-		break;
-	case GTP_MODIFY_BEARER_REQ:
-		cp_stats.modify_bearer++;
-		break;
-	case GTP_RELEASE_ACCESS_BEARERS_REQ:
-		cp_stats.rel_access_bearer++;
-		break;
-	case GTP_ECHO_REQ:
-		cp_stats.echo++;
-		break;
-	case GTP_BEARER_RESOURCE_CMD:
-		cp_stats.bearer_resource++;
-		break;
+	if (!pcap_reader) {
+			if (
+				 ((spgw_cfg == SGWC) || (spgw_cfg == SPGWC)) &&
+				 (bytes_s11_rx > 0) &&
+				 (
+				  (s11_mme_sockaddr.sin_addr.s_addr != s11_mme_ip.s_addr) ||
+				  (gtpv2c_s11_rx->gtpc.version != GTP_VERSION_GTPV2C)
+				 )
+				) {
+				fprintf(stderr, "Discarding packet from %s:%u - "
+						"Expected S11_MME_IP = %s\n",
+						inet_ntoa(s11_mme_sockaddr.sin_addr),
+						ntohs(s11_mme_sockaddr.sin_port),
+						inet_ntoa(s11_mme_ip));
+				return;
+			} else if (
+						 ((spgw_cfg == PGWC) && (bytes_s5s8_rx > 0)) &&
+						 (
+						  (s5s8_sgwc_sockaddr.sin_addr.s_addr !=
+							 s5s8_sgwc_ip.s_addr) ||
+						  (gtpv2c_s5s8_rx->gtpc.version != GTP_VERSION_GTPV2C)
+						 )
+					) {
+				fprintf(stderr, "Discarding packet from %s:%u - "
+						"Expected S5S8_SGWC_IP = %s\n",
+						inet_ntoa(s5s8_sgwc_sockaddr.sin_addr),
+						ntohs(s5s8_sgwc_sockaddr.sin_port),
+						inet_ntoa(s5s8_sgwc_ip));
+				return;
+			}
 	}
 
-	bzero(&tx_buf, sizeof(tx_buf));
+	if (bytes_s5s8_rx > 0) {
+		if (spgw_cfg == SGWC) {
+			switch (gtpv2c_s5s8_rx->gtpc.type) {
+			case GTP_CREATE_SESSION_RSP:
+				/* Check s5s8 GTP_CREATE_SESSION_RSP */
+				ret = process_sgwc_s5s8_create_session_response(
+						gtpv2c_s5s8_rx, gtpv2c_s11_tx);
+				if (ret) {
+					fprintf(stderr, "main.c::control_plane()::Error"
+							"\n\tcase SGWC:"
+							"\n\tprocess_sgwc_s5s8_create_session_response "
+							"%s: (%d) %s\n",
+							gtp_type_str(gtpv2c_s5s8_rx->gtpc.type), ret,
+							(ret < 0 ? strerror(-ret) : cause_str(ret)));
+					/* Error handling not implemented */
+					return;
+				}
 
+				payload_length = ntohs(gtpv2c_s11_tx->gtpc.length)
+						+ sizeof(gtpv2c_s11_tx->gtpc);
+				RTE_LOG(DEBUG, CP, "NGIC- main.c::control_plane()::"
+						"\n\tcase GTP_CREATE_SESSION_RSP"
+						"\n\ts11_msgcnt= %u;"
+						"\n\tgtpv2c_send :: s11_fd= %d;"
+						"\n\tdest_addr= %s : dest_addrln= %u;"
+						"\n\tdest_port= %u\n",
+						s11_msgcnt, s11_fd,
+						inet_ntoa(s11_mme_sockaddr.sin_addr),
+						s11_mme_sockaddr_len,
+						ntohs(s11_mme_sockaddr.sin_port));
+				/* Note: s11_tx_buf should be prepared by call to:
+				 * process_sgwc_s5s8_create_session_response
+				 */
+				gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
+						(struct sockaddr *) &s11_mme_sockaddr,
+						s11_mme_sockaddr_len);
+				s11_msgcnt++;
+				break;
+			case GTP_DELETE_SESSION_RSP:
+				/* Check s5s8 GTP_DELETE_SESSION_RSP */
+				ret = process_sgwc_s5s8_delete_session_response(
+						gtpv2c_s5s8_rx, gtpv2c_s11_tx);
+				if (ret) {
+					fprintf(stderr, "main.c::control_plane()::Error"
+							"\n\tcase SGWC:"
+							"\n\tprocess_sgwc_s5s8_delete_session_response "
+							"%s: (%d) %s\n",
+							gtp_type_str(gtpv2c_s5s8_rx->gtpc.type), ret,
+							(ret < 0 ? strerror(-ret) : cause_str(ret)));
+					/* Error handling not implemented */
+					return;
+				}
+
+				payload_length = ntohs(gtpv2c_s11_tx->gtpc.length)
+						+ sizeof(gtpv2c_s11_tx->gtpc);
+				RTE_LOG(DEBUG, CP, "NGIC- main.c::control_plane()::"
+						"\n\tcase GTP_DELETE_SESSION_RSP"
+						"\n\ts11_msgcnt= %u;"
+						"\n\tgtpv2c_send :: s11_fd= %d;"
+						"\n\tdest_addr= %s : dest_addrln= %u;"
+						"\n\tdest_port= %u\n",
+						s11_msgcnt, s11_fd,
+						inet_ntoa(s11_mme_sockaddr.sin_addr),
+						s11_mme_sockaddr_len,
+						ntohs(s11_mme_sockaddr.sin_port));
+				/* Note: s11_tx_buf should be prepared by call to:
+				 * process_sgwc_s5s8_delete_session_response
+				 */
+				gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
+						(struct sockaddr *) &s11_mme_sockaddr,
+						s11_mme_sockaddr_len);
+				s11_msgcnt++;
+				break;
+			default:
+				fprintf(stderr, "main.c::control_plane::process_msgs-"
+						"\n\tcase: SGWC::spgw_cfg= %u;"
+						"\n\tReceived unprocessed s5s8 GTPv2c Message Type: "
+						"%s (%u 0x%x)... Discarding\n",
+						spgw_cfg, gtp_type_str(gtpv2c_s5s8_rx->gtpc.type),
+						gtpv2c_s5s8_rx->gtpc.type,
+						gtpv2c_s5s8_rx->gtpc.type);
+				return;
+				break;
+			}
+		}
+
+		if (spgw_cfg == PGWC) {
+			switch (gtpv2c_s5s8_rx->gtpc.type) {
+			case GTP_CREATE_SESSION_REQ:
+				ret = process_pgwc_s5s8_create_session_request(
+					gtpv2c_s5s8_rx, gtpv2c_s5s8_tx);
+				if (ret) {
+					fprintf(stderr, "main.c::control_plane()::Error"
+							"\n\tcase PGWC:"
+							"\n\tprocess_pgwc_s5s8_create_session_request "
+							"%s: (%d) %s\n",
+							gtp_type_str(gtpv2c_s5s8_rx->gtpc.type), ret,
+							(ret < 0 ? strerror(-ret) : cause_str(ret)));
+					/* Error handling not implemented */
+					return;
+				}
+				payload_length = ntohs(gtpv2c_s5s8_tx->gtpc.length)
+						+ sizeof(gtpv2c_s5s8_tx->gtpc);
+				RTE_LOG(DEBUG, CP, "NGIC- main.c::control_plane()::"
+						"\n\tcase GTP_CREATE_SESSION_REQ"
+						"\n\ts5s8_pgwc_msgcnt= %u;"
+						"\n\tgtpv2c_send :: s5s8_pgwc_fd= %d;"
+						"\n\tdest_addr= %s : dest_addrln= %u;"
+						"\n\tdest_port= %u\n",
+						s5s8_pgwc_msgcnt, s5s8_pgwc_fd,
+						inet_ntoa(s5s8_sgwc_sockaddr.sin_addr),
+						s5s8_sgwc_sockaddr_len,
+						ntohs(s5s8_sgwc_sockaddr.sin_port));
+				gtpv2c_send(s5s8_pgwc_fd, s5s8_tx_buf, payload_length,
+						(struct sockaddr *) &s5s8_sgwc_sockaddr,
+						s5s8_sgwc_sockaddr_len);
+				s5s8_pgwc_msgcnt++;
+				break;
+			case GTP_DELETE_SESSION_REQ:
+				ret = process_pgwc_s5s8_delete_session_request(
+					gtpv2c_s5s8_rx, gtpv2c_s5s8_tx);
+				if (ret) {
+					fprintf(stderr, "main.c::control_plane()::Error"
+							"\n\tcase PGWC:"
+							"\n\tprocess_pgwc_s5s8_delete_session_request "
+							"%s: (%d) %s\n",
+							gtp_type_str(gtpv2c_s5s8_rx->gtpc.type), ret,
+							(ret < 0 ? strerror(-ret) : cause_str(ret)));
+					/* Error handling not implemented */
+					return;
+				}
+				payload_length = ntohs(gtpv2c_s5s8_tx->gtpc.length)
+						+ sizeof(gtpv2c_s5s8_tx->gtpc);
+				RTE_LOG(DEBUG, CP, "NGIC- main.c::control_plane()::"
+						"\n\tcase GTP_DELETE_SESSION_REQ"
+						"\n\ts5s8_pgwc_msgcnt= %u;"
+						"\n\tgtpv2c_send :: s5s8_pgwc_fd= %d;"
+						"\n\tdest_addr= %s : dest_addrln= %u;"
+						"\n\tdest_port= %u\n",
+						s5s8_pgwc_msgcnt, s5s8_pgwc_fd,
+						inet_ntoa(s5s8_sgwc_sockaddr.sin_addr),
+						s5s8_sgwc_sockaddr_len,
+						ntohs(s5s8_sgwc_sockaddr.sin_port));
+				gtpv2c_send(s5s8_pgwc_fd, s5s8_tx_buf, payload_length,
+						(struct sockaddr *) &s5s8_sgwc_sockaddr,
+						s5s8_sgwc_sockaddr_len);
+				s5s8_pgwc_msgcnt++;
+				break;
+			default:
+				fprintf(stderr, "main.c::control_plane::process_msgs-"
+						"\n\tcase: PGWC::spgw_cfg= %u;"
+						"\n\tReceived unprocessed s5s8 GTPv2c Message Type: "
+						"%s (%u 0x%x)... Discarding\n",
+						spgw_cfg, gtp_type_str(gtpv2c_s5s8_rx->gtpc.type),
+						gtpv2c_s5s8_rx->gtpc.type,
+						gtpv2c_s5s8_rx->gtpc.type);
+				return;
+				break;
+			}
+		}
+	}
+
+	if (bytes_s11_rx > 0) {
+		if ((spgw_cfg == SGWC) || (spgw_cfg == SPGWC)) {
+			switch (gtpv2c_s11_rx->gtpc.type) {
+			case GTP_CREATE_SESSION_REQ:
+				ret = process_create_session_request(
+					gtpv2c_s11_rx, gtpv2c_s11_tx, gtpv2c_s5s8_tx);
+				if (ret) {
+					fprintf(stderr, "main.c::control_plane()::Error"
+							"\n\tcase SGWC | SPGWC:"
+							"\n\tprocess_create_session_request "
+							"%s: (%d) %s\n",
+							gtp_type_str(gtpv2c_s11_rx->gtpc.type), ret,
+							(ret < 0 ? strerror(-ret) : cause_str(ret)));
+					/* Error handling not implemented */
+					return;
+				}
+				if (spgw_cfg == SGWC) {
+					/* Forward s11 create_session_request on s5s8 */
+					payload_length = ntohs(gtpv2c_s5s8_tx->gtpc.length)
+							+ sizeof(gtpv2c_s5s8_tx->gtpc);
+					RTE_LOG(DEBUG, CP, "NGIC- main.c::control_plane()::"
+							"\n\tcase GTP_CREATE_SESSION_REQ"
+							"\n\ts5s8_sgwc_msgcnt= %ui;"
+							"\n\tgtpv2c_send :: s5s8_sgwc_fd= %d;"
+							"\n\tdest_addr= %s : dest_addrln= %u;"
+							"\n\tdest_port= %u\n",
+							s5s8_sgwc_msgcnt, s5s8_sgwc_fd,
+							inet_ntoa(s5s8_pgwc_sockaddr.sin_addr),
+							s5s8_pgwc_sockaddr_len,
+							ntohs(s5s8_pgwc_sockaddr.sin_port));
+					gtpv2c_send(s5s8_sgwc_fd, s5s8_tx_buf, payload_length,
+							(struct sockaddr *) &s5s8_pgwc_sockaddr,
+							s5s8_pgwc_sockaddr_len);
+					s5s8_sgwc_msgcnt++;
+				} else if (spgw_cfg == SPGWC) {
+					payload_length = ntohs(gtpv2c_s11_tx->gtpc.length)
+							+ sizeof(gtpv2c_s11_tx->gtpc);
+					gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
+							(struct sockaddr *) &s11_mme_sockaddr,
+							s11_mme_sockaddr_len);
+				}
+				break;
+
+			case GTP_DELETE_SESSION_REQ:
+				ret = process_delete_session_request(
+					gtpv2c_s11_rx, gtpv2c_s11_tx, gtpv2c_s5s8_tx);
+				if (ret) {
+					fprintf(stderr, "main.c::control_plane()::Error"
+							"\n\tcase SPGWC:"
+							"\n\tprocess_delete_session_request "
+							"%s: (%d) %s\n",
+							gtp_type_str(gtpv2c_s11_rx->gtpc.type), ret,
+							(ret < 0 ? strerror(-ret) : cause_str(ret)));
+					/* Error handling not implemented */
+					return;
+				}
+				if (spgw_cfg == SGWC) {
+					/* Forward s11 delete_session_request on s5s8 */
+					payload_length = ntohs(gtpv2c_s5s8_tx->gtpc.length)
+							+ sizeof(gtpv2c_s5s8_tx->gtpc);
+					RTE_LOG(DEBUG, CP, "NGIC- main.c::control_plane()::"
+							"\n\tcase GTP_DELETE_SESSION_REQ"
+							"\n\ts5s8_sgwc_msgcnt= %u;"
+							"\n\tgtpv2c_send :: s5s8_sgwc_fd= %d;"
+							"\n\tdest_addr= %s : dest_addrln= %u;"
+							"\n\tdest_port= %u\n",
+							s5s8_sgwc_msgcnt, s5s8_sgwc_fd,
+							inet_ntoa(s5s8_pgwc_sockaddr.sin_addr),
+							s5s8_pgwc_sockaddr_len,
+							ntohs(s5s8_pgwc_sockaddr.sin_port));
+					gtpv2c_send(s5s8_sgwc_fd, s5s8_tx_buf, payload_length,
+							(struct sockaddr *) &s5s8_pgwc_sockaddr,
+							s5s8_pgwc_sockaddr_len);
+					s5s8_sgwc_msgcnt++;
+				} else if (spgw_cfg == SPGWC) {
+					payload_length = ntohs(gtpv2c_s11_tx->gtpc.length)
+							+ sizeof(gtpv2c_s11_tx->gtpc);
+					gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
+							(struct sockaddr *) &s11_mme_sockaddr,
+							s11_mme_sockaddr_len);
+				}
+				break;
+
+			case GTP_MODIFY_BEARER_REQ:
+				ret = process_modify_bearer_request(
+						gtpv2c_s11_rx, gtpv2c_s11_tx);
+				if (ret) {
+					fprintf(stderr, "main.c::control_plane()::Error"
+							"\n\tcase SPGWC:"
+							"\n\tprocess_modify_bearer_request "
+							"%s: (%d) %s\n",
+							gtp_type_str(gtpv2c_s11_rx->gtpc.type), ret,
+							(ret < 0 ? strerror(-ret) : cause_str(ret)));
+					/* Error handling not implemented */
+					return;
+				}
+				payload_length = ntohs(gtpv2c_s11_tx->gtpc.length)
+						+ sizeof(gtpv2c_s11_tx->gtpc);
+				gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
+						(struct sockaddr *) &s11_mme_sockaddr,
+						s11_mme_sockaddr_len);
+				break;
+
+			case GTP_RELEASE_ACCESS_BEARERS_REQ:
+				ret = process_release_access_bearer_request(
+						gtpv2c_s11_rx, gtpv2c_s11_tx);
+				if (ret) {
+					fprintf(stderr, "main.c::control_plane()::Error"
+							"\n\tcase SPGWC:"
+							"\n\tprocess_release_access_bearer_request "
+							"%s: (%d) %s\n",
+							gtp_type_str(gtpv2c_s11_rx->gtpc.type), ret,
+							(ret < 0 ? strerror(-ret) : cause_str(ret)));
+					/* Error handling not implemented */
+					return;
+				}
+				payload_length = ntohs(gtpv2c_s11_tx->gtpc.length)
+						+ sizeof(gtpv2c_s11_tx->gtpc);
+				gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
+						(struct sockaddr *) &s11_mme_sockaddr,
+						s11_mme_sockaddr_len);
+				break;
+
+			case GTP_BEARER_RESOURCE_CMD:
+				ret = process_bearer_resource_command(
+						gtpv2c_s11_rx, gtpv2c_s11_tx);
+				if (ret) {
+					fprintf(stderr, "main.c::control_plane()::Error"
+							"\n\tcase SPGWC:"
+							"\n\tprocess_bearer_resource_command "
+							"%s: (%d) %s\n",
+							gtp_type_str(gtpv2c_s11_rx->gtpc.type), ret,
+							(ret < 0 ? strerror(-ret) : cause_str(ret)));
+					/* Error handling not implemented */
+					return;
+				}
+				payload_length = ntohs(gtpv2c_s11_tx->gtpc.length)
+						+ sizeof(gtpv2c_s11_tx->gtpc);
+				gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
+						(struct sockaddr *) &s11_mme_sockaddr, s11_mme_sockaddr_len);
+				break;
+
+			case GTP_CREATE_BEARER_RSP:
+				ret = process_create_bearer_response(gtpv2c_s11_rx);
+				if (ret) {
+					fprintf(stderr, "main.c::control_plane()::Error"
+							"\n\tcase SPGWC:"
+							"\n\tprocess_create_bearer_response "
+							"%s: (%d) %s\n",
+							gtp_type_str(gtpv2c_s11_rx->gtpc.type), ret,
+							(ret < 0 ? strerror(-ret) : cause_str(ret)));
+					/* Error handling not implemented */
+					return;
+				}
+				payload_length = ntohs(gtpv2c_s11_tx->gtpc.length)
+						+ sizeof(gtpv2c_s11_tx->gtpc);
+				gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
+						(struct sockaddr *) &s11_mme_sockaddr,
+						s11_mme_sockaddr_len);
+				break;
+
+			case GTP_DELETE_BEARER_RSP:
+				ret = process_delete_bearer_response(gtpv2c_s11_rx);
+				if (ret) {
+					fprintf(stderr, "main.c::control_plane()::Error"
+							"\n\tcase SPGWC:"
+							"\n\tprocess_delete_bearer_response "
+							"%s: (%d) %s\n",
+							gtp_type_str(gtpv2c_s11_rx->gtpc.type), ret,
+							(ret < 0 ? strerror(-ret) : cause_str(ret)));
+					/* Error handling not implemented */
+					return;
+				}
+				payload_length = ntohs(gtpv2c_s11_tx->gtpc.length)
+						+ sizeof(gtpv2c_s11_tx->gtpc);
+				gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
+						(struct sockaddr *) &s11_mme_sockaddr,
+						s11_mme_sockaddr_len);
+				break;
+
+			case GTP_DOWNLINK_DATA_NOTIFICATION_ACK:
+				ret = process_ddn_ack(gtpv2c_s11_rx, &delay);
+				if (ret) {
+					fprintf(stderr, "main.c::control_plane()::Error"
+							"\n\tcase SPGWC:"
+							"\n\tprocess_ddn_ack "
+							"%s: (%d) %s\n",
+							gtp_type_str(gtpv2c_s11_rx->gtpc.type), ret,
+							(ret < 0 ? strerror(-ret) : cause_str(ret)));
+					/* Error handling not implemented */
+					return;
+				}
+
+				/* TODO something with delay if set */
+				break;
+
+			case GTP_ECHO_REQ:
+				ret = process_echo_request(gtpv2c_s11_rx, gtpv2c_s11_tx);
+				if (ret) {
+					fprintf(stderr, "main.c::control_plane()::Error"
+							"\n\tcase SGWC | SPGWC:"
+							"\n\tprocess_echo_request "
+							"%s: (%d) %s\n",
+							gtp_type_str(gtpv2c_s11_rx->gtpc.type), ret,
+							(ret < 0 ? strerror(-ret) : cause_str(ret)));
+					/* Error handling not implemented */
+					return;
+				}
+				payload_length = ntohs(gtpv2c_s11_tx->gtpc.length)
+						+ sizeof(gtpv2c_s11_tx->gtpc);
+				gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
+						(struct sockaddr *) &s11_mme_sockaddr,
+						s11_mme_sockaddr_len);
+				break;
+
+			default:
+				fprintf(stderr, "main.c::control_plane::process_msgs-"
+						"\n\tcase: SPGWC::spgw_cfg= %u;"
+						"\n\tReceived unprocessed s11 GTPv2c Message Type: "
+						"%s (%u 0x%x)... Discarding\n",
+						spgw_cfg, gtp_type_str(gtpv2c_s11_rx->gtpc.type),
+						gtpv2c_s11_rx->gtpc.type,
+						gtpv2c_s11_rx->gtpc.type);
+				return;
+				break;
+			}
+		}
+	}
+
+	if ((bytes_s5s8_rx > 0) || (bytes_s11_rx > 0))
+		++cp_stats.tx;
+
+	switch (spgw_cfg) {
+	case SGWC:
+	case SPGWC:
+		if (bytes_s11_rx > 0) {
+			switch (gtpv2c_s11_rx->gtpc.type) {
+			case GTP_CREATE_SESSION_REQ:
+				cp_stats.create_session++;
+				break;
+			case GTP_DELETE_SESSION_REQ:
+				cp_stats.delete_session++;
+				break;
+			case GTP_MODIFY_BEARER_REQ:
+				cp_stats.modify_bearer++;
+				break;
+			case GTP_RELEASE_ACCESS_BEARERS_REQ:
+				cp_stats.rel_access_bearer++;
+				break;
+			case GTP_BEARER_RESOURCE_CMD:
+				cp_stats.bearer_resource++;
+				break;
+			case GTP_CREATE_BEARER_RSP:
+				cp_stats.create_bearer++;
+				return;
+			case GTP_DELETE_BEARER_RSP:
+				cp_stats.delete_bearer++;
+				return;
+			case GTP_DOWNLINK_DATA_NOTIFICATION_ACK:
+				cp_stats.ddn_ack++;
+			case GTP_ECHO_REQ:
+				cp_stats.echo++;
+				break;
+			}
+		}
+		break;
+	case PGWC:
+		if (bytes_s5s8_rx > 0) {
+			switch (gtpv2c_s5s8_rx->gtpc.type) {
+			case GTP_CREATE_SESSION_REQ:
+				cp_stats.create_session++;
+				break;
+			case GTP_DELETE_SESSION_REQ:
+				cp_stats.delete_session++;
+				break;
+			}
+		}
+		break;
+	default:
+		rte_panic("main.c::control_plane::cp_stats-"
+				"Unknown spgw_cfg= %u.", spgw_cfg);
+		break;
+	}
 }
 
 int
@@ -648,9 +1267,14 @@ main(int argc, char **argv)
 		rte_panic("Cannot init EAL\n");
 
 	parse_arg(argc - ret, argv + ret);
-	printf("s11_sgw_ip:  %s\n", inet_ntoa(s11_sgw_ip));
+	printf("spgw_cfg:  %u\n", spgw_cfg);
 	printf("s11_mme_ip:  %s\n", inet_ntoa(s11_mme_ip));
+	printf("s11_sgw_ip:  %s\n", inet_ntoa(s11_sgw_ip));
+	printf("s5s8_sgwc_ip:  %s\n", inet_ntoa(s5s8_sgwc_ip));
+	printf("s5s8_pgwc_ip:  %s\n", inet_ntoa(s5s8_pgwc_ip));
 	printf("s1u_sgw_ip:  %s\n", inet_ntoa(s1u_sgw_ip));
+	printf("s5s8_sgwu_ip:  %s\n", inet_ntoa(s5s8_sgwu_ip));
+	printf("s5s8_pgwu_ip:  %s\n", inet_ntoa(s5s8_pgwu_ip));
 
 	init_cp_params();
 	init_cp();

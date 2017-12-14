@@ -349,4 +349,6 @@ free_master_cdr(void)
 {
 	if (master_cdr_filename)
 		free(master_cdr_filename);
+	master_cdr_filename = NULL;
+
 }

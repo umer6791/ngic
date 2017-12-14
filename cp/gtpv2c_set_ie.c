@@ -150,6 +150,14 @@ set_uint8_ie(gtpv2c_header *header, uint8_t type,
 	return get_ie_return(ie);
 }
 
+uint16_t
+set_ie_copy(gtpv2c_header *header, gtpv2c_ie *src_ie)
+{
+	uint16_t len = ntohs(src_ie->length);
+	gtpv2c_ie *ie = set_next_ie(header, src_ie->type, src_ie->instance, len);
+	memcpy(((uint8_t *)ie)+sizeof(gtpv2c_ie),((uint8_t *)src_ie)+sizeof(gtpv2c_ie),len);
+	return get_ie_return(ie);
+}
 
 uint16_t
 set_cause_accepted_ie(gtpv2c_header *header,
@@ -223,6 +231,16 @@ set_ipv4_paa_ie(gtpv2c_header *header, enum ie_instance instance,
 	paa_ie_ptr->ip_type_union.ipv4 = ipv4;
 
 	return get_ie_return(ie);
+}
+
+
+struct in_addr
+get_ipv4_paa_ipv4(gtpv2c_ie *ie)
+{
+	paa_ie *paa_ie_ptr = IE_TYPE_PTR_FROM_GTPV2C_IE(paa_ie, ie);
+	paa_ie_ptr->paa_ie_hdr.pdn_type = PDN_IP_TYPE_IPV4;
+	paa_ie_ptr->paa_ie_hdr.spare = 0;
+	return(paa_ie_ptr->ip_type_union.ipv4);
 }
 
 
@@ -301,7 +319,10 @@ set_bearer_tft_ie(gtpv2c_header *header, enum ie_instance instance,
 		cpf->pkt_filter_id = i;
 		cpf->direction = pf->pkt_fltr.direction;
 		cpf->spare = 0;
-		cpf->precedence = pf->pkt_fltr.precedence;
+		/*TODO : This param is removed from SDF.
+		/Handle it appropriatly here.*/
+		/*cpf->precedence = pf->pkt_fltr.precedence;*/
+		cpf->precedence = 0;
 		cpf->pkt_filter_length = 0;
 
 		if (pf->pkt_fltr.remote_ip_mask != 0) {

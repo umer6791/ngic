@@ -20,6 +20,8 @@
 #include "../cp_dp_api/vepc_cp_dp_api.h"
 #include "gtpv2c_set_ie.h"
 
+#define RTE_LOGTYPE_CP RTE_LOGTYPE_USER4
+
 /**
  * Parses delete session request message and handles the removal of
  * corresponding data structures internal to the control plane - as well as
@@ -148,16 +150,74 @@ delete_context(gtpv2c_header *gtpv2c_rx, ue_context **_context)
 
 int
 process_delete_session_request(gtpv2c_header *gtpv2c_rx,
-	gtpv2c_header *gtpv2c_tx)
+		gtpv2c_header *gtpv2c_s11_tx, gtpv2c_header *gtpv2c_s5s8_tx)
 {
 	ue_context *context = NULL;
-	int ret = delete_context(gtpv2c_rx, &context);
+	int ret;
+
+	if (spgw_cfg == SGWC) {
+		gtpv2c_ie *current_ie;
+		gtpv2c_ie *limit_ie;
+		pdn_connection *pdn = NULL;
+		gtpv2c_ie *del_ebi_ie = NULL;
+		uint32_t s5s8_pgw_gtpc_del_teid;
+		static uint32_t process_sgwc_s5s8_ds_req_cnt;
+
+		/* s11_sgw_gtpc_teid= key->ue_context_by_fteid_hash */
+		ret = rte_hash_lookup_data(ue_context_by_fteid_hash,
+			(const void *) &gtpv2c_rx->teid_u.has_teid.teid,
+			(void **) &context);
+
+		if (ret < 0 || !context)
+			return GTPV2C_CAUSE_CONTEXT_NOT_FOUND;
+
+		FOR_EACH_GTPV2C_IE(gtpv2c_rx, current_ie, limit_ie)
+		{
+			switch (current_ie->type) {
+			case IE_EBI:
+				if (current_ie->instance == IE_INSTANCE_ZERO)
+					del_ebi_ie = current_ie;
+				break;
+			}
+		}
+		uint8_t del_ebi =
+				*IE_TYPE_PTR_FROM_GTPV2C_IE(uint8_t,
+				del_ebi_ie);
+		uint8_t del_ebi_index = del_ebi -5;
+		pdn = context->pdns[del_ebi_index];
+	 	/* s11_sgw_gtpc_teid = s5s8_pgw_gtpc_base_teid =
+		 * key->ue_context_by_fteid_hash */
+		s5s8_pgw_gtpc_del_teid = pdn->s5s8_pgw_gtpc_teid;
+		ret =
+			gen_sgwc_s5s8_delete_session_request(gtpv2c_rx,
+				gtpv2c_s5s8_tx, s5s8_pgw_gtpc_del_teid,
+				gtpv2c_rx->teid_u.has_teid.seq, del_ebi);
+		RTE_LOG(DEBUG, CP, "NGIC- delete_session.c::"
+				"\n\tprocess_delete_session_request::case= %d;"
+				"\n\tprocess_sgwc_s5s8_ds_req_cnt= %u;"
+				"\n\tue_ip= pdn->ipv4= %s;"
+				"\n\tpdn->s5s8_sgw_gtpc_ipv4= %s;"
+				"\n\tpdn->s5s8_sgw_gtpc_teid= %X;"
+				"\n\tpdn->s5s8_pgw_gtpc_ipv4= %s;"
+				"\n\tpdn->s5s8_pgw_gtpc_teid= %X;"
+				"\n\tgen_delete_s5s8_session_request= %d\n",
+				spgw_cfg, process_sgwc_s5s8_ds_req_cnt++,
+				inet_ntoa(pdn->ipv4),
+				inet_ntoa(pdn->s5s8_sgw_gtpc_ipv4),
+				pdn->s5s8_sgw_gtpc_teid,
+				inet_ntoa(pdn->s5s8_pgw_gtpc_ipv4),
+				pdn->s5s8_pgw_gtpc_teid,
+				ret);
+		return ret;
+	}
+
+	ret = delete_context(gtpv2c_rx, &context);
 	if (ret)
 		return ret;
 
-	set_gtpv2c_teid_header(gtpv2c_tx, GTP_DELETE_SESSION_RSP,
+	set_gtpv2c_teid_header(gtpv2c_s11_tx, GTP_DELETE_SESSION_RSP,
 	    context->s11_mme_gtpc_teid, gtpv2c_rx->teid_u.has_teid.seq);
-	set_cause_accepted_ie(gtpv2c_tx, IE_INSTANCE_ZERO);
+	set_cause_accepted_ie(gtpv2c_s11_tx, IE_INSTANCE_ZERO);
 
 	return 0;
 }

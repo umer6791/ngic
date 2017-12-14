@@ -39,6 +39,11 @@
 #include <rte_mbuf.h>
 #include <rte_ring.h>
 #include <rte_errno.h>
+#include <rte_log.h>
+
+#ifdef STATIC_ARP
+#include <rte_cfgfile.h>
+#endif	/* STATIC_ARP */
 
 #include "epc_arp_icmp.h"
 #include "epc_packet_framework.h"
@@ -46,6 +51,9 @@
 #include "cdr.h"
 #include "main.h"
 
+#ifdef STATIC_ARP
+#define STATIC_ARP_FILE "../config/static_arp.cfg"
+#endif	/* STATIC_ARP */
 
 #if (RTE_BYTE_ORDER == RTE_LITTLE_ENDIAN)
 /* x86 == little endian
@@ -334,23 +342,24 @@ int arp_queue_unresolved_packet(struct arp_entry_data *arp_data, struct rte_mbuf
 		ret = rte_ring_dequeue(arp_data->queue, (void **)&tmp);
 		if (ret) {
 			rte_pktmbuf_free(buf_pkt);
-			printf("Can't queue packet destined for %s, dropping pkt\n",
+			RTE_LOG(NOTICE, DP, "Can't queue packet destined for %s,"
+					" dropping pkt\n",
 					inet_ntoa(*(struct in_addr *) &arp_data->ip));
 		} else {
 			rte_pktmbuf_free(tmp);
 			rte_ring_enqueue(arp_data->queue, (void **)buf_pkt);
 			if (ARPICMP_DEBUG)
-				printf("Ring full for %s, dropping oldest pkt\n",
+				RTE_LOG(NOTICE, DP, "Ring full for %s, dropping oldest pkt\n",
 						inet_ntoa(*(struct in_addr *) &arp_data->ip));
 		}
 	} else if (ret) {
 		rte_pktmbuf_free(buf_pkt);
-		printf("Unable to queue packet for %s - %s (%d)\n",
+		RTE_LOG(NOTICE, DP, "Unable to queue packet for %s - %s (%d)\n",
 				inet_ntoa(*(struct in_addr *) &arp_data->ip),
 				rte_strerror(abs(ret)), ret);
 	} else {
 		if (ARPICMP_DEBUG) {
-			printf("                               Queued packet for %20s\n",
+			RTE_LOG(NOTICE, DP, "Qued packet for %20s\n",
 					inet_ntoa(*(struct in_addr *) &arp_data->ip));
 		}
 	}
@@ -397,10 +406,11 @@ static void
 print_ipv4_h(struct ipv4_hdr *ip_h)
 {
 	struct icmp_hdr *icmp_h = (struct icmp_hdr *)((char *)ip_h + sizeof(struct ipv4_hdr));
-	printf("  IPv4: Version=%d HLEN=%d Type=%d Length=%d\n",
+	printf("  IPv4: Version=%d HLEN=%d Type=%d Protocol=%d Length=%d\n",
 			(ip_h->version_ihl & 0xf0) >> 4,
 			(ip_h->version_ihl & 0x0f),
 			ip_h->type_of_service,
+			ip_h->next_proto_id,
 			rte_cpu_to_be_16(ip_h->total_length));
 	printf("Dst IP:");
 	print_ip(ntohl(ip_h->dst_addr));
@@ -479,7 +489,7 @@ print_eth(struct ether_hdr *eth_h)
 
 }
 
-static void
+void
 print_mbuf(const char *rx_tx, unsigned portid, struct rte_mbuf *mbuf, unsigned line)
 {
 	struct ether_hdr *eth_h = rte_pktmbuf_mtod(mbuf, struct ether_hdr *);
@@ -706,15 +716,47 @@ void print_pkt1(struct rte_mbuf *pkt)
 static void
 get_mac_ip_addr(struct arp_port_address *addr, uint8_t port_id)
 {
-	if (app.s1u_port == port_id) {
-		addr[port_id].ip = app.s1u_ip;
-		addr[port_id].mac_addr = &app.s1u_ether_addr;
-	} else if (app.sgi_port == port_id) {
-		addr[port_id].ip = app.sgi_ip;
-		addr[port_id].mac_addr = &app.sgi_ether_addr;
-	} else {
-		printf("Unknown input port\n");
+	switch (app.spgw_cfg) {
+		case SGWU:
+			if (app.s1u_port == port_id) {
+				addr[port_id].ip = app.s1u_ip;
+				addr[port_id].mac_addr = &app.s1u_ether_addr;
+			} else if (app.s5s8_sgwu_port == port_id) {
+				addr[port_id].ip = app.s5s8_sgwu_ip;
+				addr[port_id].mac_addr = &app.s5s8_sgwu_ether_addr;
+			} else {
+				printf("Unknown input port\n");
+			}
+			break;
+
+		case PGWU:
+			if (app.s5s8_pgwu_port == port_id) {
+				addr[port_id].ip = app.s5s8_pgwu_ip;
+				addr[port_id].mac_addr = &app.s5s8_pgwu_ether_addr;
+			} else if (app.sgi_port == port_id) {
+				addr[port_id].ip = app.sgi_ip;
+				addr[port_id].mac_addr = &app.sgi_ether_addr;
+			} else {
+				printf("Unknown input port\n");
+			}
+			break;
+
+		case SPGWU:
+			if (app.s1u_port == port_id) {
+				addr[port_id].ip = app.s1u_ip;
+				addr[port_id].mac_addr = &app.s1u_ether_addr;
+			} else if (app.sgi_port == port_id) {
+				addr[port_id].ip = app.sgi_ip;
+				addr[port_id].mac_addr = &app.sgi_ether_addr;
+			} else {
+				printf("Unknown input port\n");
+			}
+			break;
+
+		default:
+			break;
 	}
+
 }
 
 int
@@ -964,8 +1006,180 @@ static int port_in_ah_arp_icmp_key(struct rte_pipeline *p, struct rte_mbuf **pkt
 		if (pkts[i])
 			pkt_work_arp_icmp_key(pkts[i], arg);
 	}
+
 	return 0;
 }
+
+#ifdef STATIC_ARP
+static int
+parse_ether_addr(struct ether_addr *hw_addr, const char *str)
+{
+	int ret = sscanf(str, "%"SCNx8":"
+			"%"SCNx8":"
+			"%"SCNx8":"
+			"%"SCNx8":"
+			"%"SCNx8":"
+			"%"SCNx8,
+			&hw_addr->addr_bytes[0],
+			&hw_addr->addr_bytes[1],
+			&hw_addr->addr_bytes[2],
+			&hw_addr->addr_bytes[3],
+			&hw_addr->addr_bytes[4],
+			&hw_addr->addr_bytes[5]);
+	return  ret - RTE_DIM(hw_addr->addr_bytes);
+}
+
+static void
+add_static_arp_entry(struct rte_cfgfile_entry *entry, uint8_t port_id)
+{
+	struct pipeline_arp_icmp_arp_key_ipv4 key = {.port_id = port_id};
+	struct arp_entry_data *data;
+	char *low_ptr;
+	char *high_ptr;
+	char *saveptr;
+	struct in_addr low_addr;
+	struct in_addr high_addr;
+	uint32_t low_ip;
+	uint32_t high_ip;
+	uint32_t cur_ip;
+	struct ether_addr hw_addr;
+	int ret;
+
+	low_ptr = strtok_r(entry->name, " \t", &saveptr);
+	high_ptr = strtok_r(NULL, " \t", &saveptr);
+
+	if (low_ptr == NULL) {
+		printf("Error parsing static arp entry: %s = %s\n",
+				entry->name, entry->value);
+		return;
+	}
+
+	ret = inet_aton(low_ptr, &low_addr);
+	if (ret == 0) {
+		printf("Error parsing static arp entry: %s = %s\n",
+				entry->name, entry->value);
+		return;
+	}
+
+	if (high_ptr) {
+		ret = inet_aton(high_ptr, &high_addr);
+		if (ret == 0) {
+			printf("Error parsing static arp entry: %s = %s\n",
+					entry->name, entry->value);
+			return;
+		}
+	} else {
+		high_addr = low_addr;
+	}
+
+	low_ip = ntohl(low_addr.s_addr);
+	high_ip = ntohl(high_addr.s_addr);
+
+	if (high_ip < low_ip) {
+		printf("Error parsing static arp entry"
+				" - range must be low to high: %s = %s\n",
+				entry->name, entry->value);
+		return;
+	}
+
+	if (parse_ether_addr(&hw_addr, entry->value)) {
+		printf("Error parsing static arp entry mac addr"
+				"%s = %s\n",
+				entry->name, entry->value);
+		return;
+	}
+
+	for (cur_ip = low_ip; cur_ip <= high_ip; ++cur_ip) {
+
+		key.ip = ntohl(cur_ip);
+
+		data = rte_malloc_socket(NULL,
+				sizeof(struct arp_entry_data),
+				RTE_CACHE_LINE_SIZE, rte_socket_id());
+		if (data == NULL) {
+			printf("Error allocating arp entry - "
+					"%s = %s\n",
+					entry->name, entry->value);
+			return;
+		}
+
+		data->eth_addr = hw_addr;
+		data->port = port_id;
+		data->status = COMPLETE;
+		data->ip = key.ip;
+		data->last_update = time(NULL);
+		data->queue = NULL;
+		rte_rwlock_init(&data->queue_lock);
+
+		add_arp_data(&key, data);
+	}
+}
+
+static void
+config_static_arp(void)
+{
+	struct rte_cfgfile *file = rte_cfgfile_load(STATIC_ARP_FILE, 0);
+	struct rte_cfgfile_entry *sgi_entries = NULL;
+	struct rte_cfgfile_entry *s1u_entries = NULL;
+	int num_sgi_entries;
+	int num_s1u_entries;
+	int i;
+
+	if (file == NULL) {
+		printf("Cannot load configuration file %s\n",
+				STATIC_ARP_FILE);
+		return;
+	}
+
+	printf("Parsing %s\n", STATIC_ARP_FILE);
+
+	num_sgi_entries = rte_cfgfile_section_num_entries(file, "sgi");
+	if (num_sgi_entries > 0) {
+		sgi_entries = rte_malloc_socket(NULL,
+				sizeof(struct rte_cfgfile_entry) *
+				num_sgi_entries,
+				RTE_CACHE_LINE_SIZE, rte_socket_id());
+	}
+	if (sgi_entries == NULL) {
+		fprintf(stderr, "Error configuring sgi entry of %s\n",
+				STATIC_ARP_FILE);
+	} else {
+		rte_cfgfile_section_entries(file, "sgi", sgi_entries,
+				num_sgi_entries);
+
+		for (i = 0; i < num_sgi_entries; ++i) {
+			printf("[SGI]: %s = %s\n", sgi_entries[i].name,
+					sgi_entries[i].value);
+			add_static_arp_entry(&sgi_entries[i], SGI_PORT_ID);
+		}
+		rte_free(sgi_entries);
+	}
+
+	num_s1u_entries = rte_cfgfile_section_num_entries(file, "s1u");
+	if (num_s1u_entries > 0) {
+		s1u_entries = rte_malloc_socket(NULL,
+				sizeof(struct rte_cfgfile_entry) *
+				num_s1u_entries,
+				RTE_CACHE_LINE_SIZE, rte_socket_id());
+	}
+	if (s1u_entries == NULL) {
+		fprintf(stderr, "Error configuring s1u entry of %s\n",
+				STATIC_ARP_FILE);
+	} else {
+		rte_cfgfile_section_entries(file, "s1u", s1u_entries,
+				num_s1u_entries);
+		for (i = 0; i < num_sgi_entries; ++i) {
+			printf("[S1u]: %s = %s\n", s1u_entries[i].name,
+					s1u_entries[i].value);
+			add_static_arp_entry(&s1u_entries[i], S1U_PORT_ID);
+		}
+		rte_free(s1u_entries);
+	}
+
+	if (ARPICMP_DEBUG)
+		print_arp_table();
+}
+#endif	/* STATIC_ARP */
 
 void
 epc_arp_icmp_init(void)
@@ -1091,13 +1305,25 @@ epc_arp_icmp_init(void)
 	}
 
 	/* create the arp_icmp mbuf rx pool */
-	arp_icmp_pktmbuf_tx_pool = rte_pktmbuf_pool_create("arp_icmp_mbuf_tx_pool", NB_ARPICMP_MBUF, 32,
-			0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
-
-	arp_queued_pktmbuf_tx_pool = rte_pktmbuf_pool_create("arp_queued_pktmbuf_tx_pool", NB_ARPICMP_MBUF, 32,
+	arp_icmp_pktmbuf_tx_pool = rte_pktmbuf_pool_create(
+			"arp_icmp_mbuf_tx_pool", NB_ARPICMP_MBUF, 32,
 			0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
 
 	if (arp_icmp_pktmbuf_tx_pool == NULL) {
+		rte_panic("rte_pktmbuf_pool_create failed for "
+				"arp_icmp_mbuf_tx_pool: %s\n",
+				rte_strerror(abs(errno)));
+		return;
+	}
+
+	arp_queued_pktmbuf_tx_pool = rte_pktmbuf_pool_create(
+			"arp_queued_tx_pool", NB_ARPICMP_MBUF, 32,
+			0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
+
+	if (arp_queued_pktmbuf_tx_pool == NULL) {
+		rte_panic("rte_pktmbuf_pool_create failed for "
+				"arp_queued_pktmbuf_tx_pool: %s\n",
+				rte_strerror(abs(errno)));
 		return;
 	}
 
@@ -1114,6 +1340,10 @@ epc_arp_icmp_init(void)
 				rte_errno);
 
 	rte_rwlock_init(&arp_hash_handle_lock);
+
+#ifdef STATIC_ARP
+	config_static_arp();
+#endif	/* STATIC_ARP */
 }
 
 void epc_arp_icmp(__rte_unused void *arg)

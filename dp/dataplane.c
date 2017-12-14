@@ -16,6 +16,10 @@
 
 #include <arpa/inet.h>
 
+#ifdef PCAP_GEN
+#include <pcap.h>
+#endif /* PCAP_GEN */
+
 #include <rte_cycles.h>
 #include <rte_ip.h>
 #include <rte_ip_frag.h>
@@ -39,7 +43,13 @@ struct rte_hash *rte_adc_hash;
 struct rte_hash *rte_adc_ue_hash;
 struct rte_hash *rte_sess_hash;
 struct rte_hash *rte_ue_hash;
+struct rte_hash *rte_sdf_pcc_hash;
+struct rte_hash *rte_adc_pcc_hash;
 
+#ifdef PCAP_GEN
+pcap_dumper_t *pcap_dumper_east;
+pcap_dumper_t *pcap_dumper_west;
+#endif /* PCAP_GEN */
 
 void
 gtpu_decap(struct rte_mbuf **pkts, uint32_t n,
@@ -56,7 +66,22 @@ gtpu_decap(struct rte_mbuf **pkts, uint32_t n,
 	for (i = 0; i < n; i++) {
 		/* reject if not with s1u ip */
 		ipv4_hdr = get_mtoip(pkts[i]);
-		if (ipv4_hdr->dst_addr != app.s1u_ip) {
+		uint32_t ip;
+
+		switch(app.spgw_cfg) {
+			case SPGWU:
+				ip = app.s1u_ip;
+				break;
+
+			case PGWU:
+				ip = app.s5s8_pgwu_ip;
+				break;
+
+			default:
+				break;
+		}
+
+		if (ipv4_hdr->dst_addr != ip) {
 			RESET_BIT(*pkts_mask, i);
 			continue;
 		}
@@ -102,6 +127,8 @@ gtpu_encap(struct dp_session_info **sess_info, struct rte_mbuf **pkts,
 	struct dp_session_info *si;
 	struct rte_mbuf *m;
 	uint16_t len;
+	uint32_t src_addr;
+	uint32_t dst_addr;
 
 	for (i = 0; i < n; i++) {
 		si = sess_info[i];
@@ -129,9 +156,27 @@ gtpu_encap(struct dp_session_info **sess_info, struct rte_mbuf **pkts,
 		len = rte_pktmbuf_data_len(m);
 		len = len - ETH_HDR_SIZE;
 
+		if (app.spgw_cfg == PGWU)
+			dst_addr = si->dl_s1_info.s5s8_sgwu_addr.u.ipv4_addr;
+		else
+			dst_addr = si->dl_s1_info.enb_addr.u.ipv4_addr;
+
 		/* construct iphdr */
-		construct_ipv4_hdr(m, len, IP_PROTO_UDP, ntohl(app.s1u_ip),
-				si->dl_s1_info.enb_addr.u.ipv4_addr);
+		switch(app.spgw_cfg) {
+			case SPGWU:
+				src_addr = app.s1u_ip;
+				break;
+
+			case PGWU:
+				src_addr = app.s5s8_pgwu_ip;
+				break;
+
+			default:
+				break;
+		}
+
+		construct_ipv4_hdr(m, len, IP_PROTO_UDP, ntohl(src_addr),
+					dst_addr);
 
 		len = len - IPv4_HDR_SIZE;
 		/* construct udphdr */
@@ -149,19 +194,63 @@ ul_sess_info_get(struct rte_mbuf **pkts, uint32_t n, uint32_t *res,
 	struct epc_meta_data *meta_data;
 	uint64_t hit_mask = 0;
 
+	/* TODO: uplink hash is created based on values pushed from CP.
+	 * CP always sends rule-id = 1 while creation.
+	 * After new implementation of ADC-PCC relation lookup will fail.
+	 * Hard coding rule id to 1. (temporary fix)
+	 */
 	for (j = 0; j < n; j++) {
-		meta_data =
-		(struct epc_meta_data *)RTE_MBUF_METADATA_UINT8_PTR(pkts[j],
-							META_DATA_OFFSET);
-		key[j].s1u_sgw_teid = meta_data->teid;
-		key[j].rid = res[j];
-		RTE_LOG(DEBUG, DP, "BEAR_SESS LKUP:UL_KEY teid:%u, rid:%u\n",
-				key[j].s1u_sgw_teid, key[j].rid);
+		key[j].rid =1;
+		key[j].s1u_sgw_teid = 0;
 		key_ptr[j] = &key[j];
+
+		switch (app.spgw_cfg) {
+			case SPGWU: {
+				meta_data =
+					(struct epc_meta_data *)RTE_MBUF_METADATA_UINT8_PTR(pkts[j],
+					META_DATA_OFFSET);
+				key[j].s1u_sgw_teid = meta_data->teid;
+				break;
+			}
+
+			case SGWU: {
+				struct ipv4_hdr *ipv4_hdr = NULL;
+				struct udp_hdr *udp_hdr = NULL;
+				struct gtpu_hdr *gtpu_hdr = NULL;
+
+				/* reject if not with s1u ip */
+				ipv4_hdr = get_mtoip(pkts[j]);
+				if (ipv4_hdr->dst_addr != app.s1u_ip) {
+					RESET_BIT(*pkts_mask, j);
+					continue;
+				}
+
+				/* reject un-tunneled packet */
+				udp_hdr = get_mtoudp(pkts[j]);
+				if (ntohs(udp_hdr->dst_port) != UDP_PORT_GTPU) {
+					RESET_BIT(*pkts_mask, j);
+					continue;
+				}
+
+				gtpu_hdr = get_mtogtpu(pkts[j]);
+				if (gtpu_hdr->teid == 0 || gtpu_hdr->msgtype != GTP_GPDU) {
+					RESET_BIT(*pkts_mask, j);
+					continue;
+				}
+
+				key[j].s1u_sgw_teid = ntohl(gtpu_hdr->teid);
+				break;
+			}
+
+			default:
+				break;
+		}
 	}
+
 	if ((iface_lookup_uplink_bulk_data((const void **)&key_ptr[0], n,
-			&hit_mask, (void **)sess_info)) < 0)
+			&hit_mask, (void **)sess_info)) < 0) {
 		hit_mask = 0;
+	}
 
 	for (j = 0; j < n; j++) {
 		if (!ISSET_BIT(hit_mask, j)) {
@@ -204,30 +293,88 @@ adc_ue_info_get(struct rte_mbuf **pkts, uint32_t n, uint32_t *res,
 			adc_ue_info[j] = NULL;
 }
 
-
 void
 dl_sess_info_get(struct rte_mbuf **pkts, uint32_t n, uint32_t *res,
 		uint64_t *pkts_mask, struct dp_sdf_per_bearer_info **sess_info,
 		struct dp_session_info **si)
 {
 	uint32_t j;
-	struct ipv4_hdr *ipv4_hdr;
-	struct dl_bm_key *key_ptr[MAX_BURST_SZ];
+	struct dl_bm_key key[MAX_BURST_SZ];
+	void *key_ptr[MAX_BURST_SZ];
+	struct ipv4_hdr *ipv4_hdr = NULL;
+	uint32_t dst_addr = 0;
 	uint64_t hit_mask = 0;
 
+	/* TODO: downlink hash is created based on values pushed from CP.
+	 * CP always sends rule-id = 1 while creation.
+	 * After new implementation of ADC-PCC relation lookup will fail.
+	 * Hard coding rule id to 1. (temporary fix)
+	 */
 	for (j = 0; j < n; j++) {
-		ipv4_hdr = get_mtoip(pkts[j]);
+		key[j].rid =1;
+		key[j].ue_ipv4 = 0;
+		key_ptr[j] = &key[j];
+
+		switch (app.spgw_cfg) {
+			case SGWU: {
+				struct udp_hdr *udp_hdr = NULL;
+				struct gtpu_hdr *gtpu_hdr = NULL;
+
+				/* reject if not with s1u ip */
+				ipv4_hdr = get_mtoip(pkts[j]);
+				if (ipv4_hdr->dst_addr != app.s5s8_sgwu_ip) {
+					RESET_BIT(*pkts_mask, j);
+					continue;
+				}
+
+				/* reject un-tunneled packet */
+				udp_hdr = get_mtoudp(pkts[j]);
+				if (ntohs(udp_hdr->dst_port) != UDP_PORT_GTPU) {
+					RESET_BIT(*pkts_mask, j);
+					continue;
+				}
+
+				gtpu_hdr = get_mtogtpu(pkts[j]);
+				if (gtpu_hdr->teid == 0 || gtpu_hdr->msgtype != GTP_GPDU) {
+					RESET_BIT(*pkts_mask, j);
+					continue;
+				}
+
+				uint8_t *pkt_ptr = (uint8_t *) gtpu_hdr;
+				pkt_ptr += GPDU_HDR_SIZE;
+				ipv4_hdr = (struct ipv4_hdr *)pkt_ptr;
+				dst_addr = ntohl(ipv4_hdr->dst_addr);
+				break;
+			}
+
+			case PGWU: {
+				/* Values are same as SPGWU.*/
+			}
+
+			case SPGWU: {
+				ipv4_hdr = get_mtoip(pkts[j]);
+				dst_addr = ntohl(ipv4_hdr->dst_addr);
+				break;
+			}
+
+			default:
+				break;
+		}
+
+
+		key[j].ue_ipv4 = dst_addr;
 		struct epc_meta_data *meta_data =
 		(struct epc_meta_data *)RTE_MBUF_METADATA_UINT8_PTR(pkts[j],
 							META_DATA_OFFSET);
-		meta_data->key.ue_ipv4 = ntohl(ipv4_hdr->dst_addr);
-		meta_data->key.rid = res[j];
+		meta_data->key.ue_ipv4 = key[j].ue_ipv4;
+		meta_data->key.rid = key[j].rid;
 		RTE_LOG(DEBUG, DP, "BEAR_SESS LKUP:DL_KEY ue_addr:"IPV4_ADDR
 				", rid:%u\n",
 				IPV4_ADDR_HOST_FORMAT(meta_data->key.ue_ipv4),
 				meta_data->key.rid);
-		key_ptr[j] = &(meta_data->key);
+		key_ptr[j] = &key[j];
 	}
+
 	if ((iface_lookup_downlink_bulk_data((const void **)&key_ptr[0], n,
 			&hit_mask, (void **)sess_info)) < 0)
 		RTE_LOG(ERR, DP, "SDF BEAR Bulk LKUP:FAIL!!\n");
@@ -237,8 +384,8 @@ dl_sess_info_get(struct rte_mbuf **pkts, uint32_t n, uint32_t *res,
 			RESET_BIT(*pkts_mask, j);
 			RTE_LOG(DEBUG, DP, "SDF BEAR LKUP FAIL!! DL_KEY "
 					"ue_addr:"IPV4_ADDR", rid:%u\n",
-				IPV4_ADDR_HOST_FORMAT((key_ptr[j])->ue_ipv4),
-				((struct dl_bm_key *)key_ptr[j])->rid);
+				IPV4_ADDR_HOST_FORMAT((key[j]).ue_ipv4),
+				key[j].rid);
 			sess_info[j] = NULL;
 			si[j] = NULL;
 		} else {
@@ -264,24 +411,14 @@ get_pcc_info(void **sess_info, uint32_t n, void **pcc_info)
 }
 
 void
-pcc_gating(struct dp_sdf_per_bearer_info **sdf_info,
-		uint32_t n, uint64_t *pkts_mask)
+pcc_gating(struct pcc_id_precedence *pcc_info,
+	uint32_t n, uint64_t *pkts_mask)
 {
-	struct dp_pcc_rules *pcc;
-	struct dp_sdf_per_bearer_info *psdf;
 	uint32_t i;
 
 	for (i = 0; i < n; i++) {
-		psdf = (struct dp_sdf_per_bearer_info *)sdf_info[i];
-		if (psdf == NULL)
-			continue;
-		pcc = &psdf->pcc_info;
-		if (pcc == NULL)
-			continue;
-
-		if (pcc->gate_status == CLOSE) {
+		if (pcc_info[i].gate_status == CLOSE) {
 			RESET_BIT(*pkts_mask, i);
-			pcc->drop_pkt_count++;
 		}
 	}
 }
@@ -589,15 +726,69 @@ clone_dns_pkts(struct rte_mbuf **pkts, uint32_t n, uint64_t pkts_mask)
 
 void
 update_nexthop_info(struct rte_mbuf **pkts, uint32_t n,
-		uint64_t *pkts_mask, uint8_t portid)
+		uint64_t *pkts_mask, uint8_t portid,
+		struct dp_sdf_per_bearer_info **sess_info)
 {
 	uint32_t i;
 	for (i = 0; i < n; i++) {
 		if (ISSET_BIT(*pkts_mask, i)) {
-			if (construct_ether_hdr(pkts[i], portid) < 0)
+			if (construct_ether_hdr(pkts[i], portid, &sess_info[i]) < 0)
 				RESET_BIT(*pkts_mask, i);
 		}
 		/* TODO: Set checksum offload.*/
+	}
+}
+
+void
+update_nexts5s8_info(struct rte_mbuf **pkts, uint32_t n,
+		uint64_t *pkts_mask, struct dp_sdf_per_bearer_info **sdf_bear_info)
+{
+	/*TODO: Do we need to update TEID in GTP header?*/
+	uint16_t len;
+	uint32_t i;
+
+	for (i = 0; i < n; i++) {
+		if (ISSET_BIT(*pkts_mask, i)) {
+			len = rte_pktmbuf_data_len(pkts[i]);
+			len = len - ETH_HDR_SIZE;
+
+			if (app.spgw_cfg == SGWU) {
+				/*TODO : Make readable*/
+				uint32_t s5s8_pgwu_addr =
+					sdf_bear_info[i]->bear_sess_info->ul_s1_info.s5s8_pgwu_addr.u.ipv4_addr;
+				construct_ipv4_hdr(pkts[i], len, IP_PROTO_UDP,
+						ntohl(app.s5s8_sgwu_ip), s5s8_pgwu_addr);
+			}else if (app.spgw_cfg == PGWU) {
+				uint32_t s5s8_sgwu_addr =
+					sdf_bear_info[i]->bear_sess_info->dl_s1_info.s5s8_sgwu_addr.u.ipv4_addr;
+				construct_ipv4_hdr(pkts[i], len, IP_PROTO_UDP,
+						ntohl(app.s5s8_pgwu_ip), s5s8_sgwu_addr);
+			}
+		}
+	}
+}
+
+void
+update_enb_info(struct rte_mbuf **pkts, uint32_t n,
+		uint64_t *pkts_mask, struct dp_sdf_per_bearer_info **sess_info)
+{
+	uint16_t len;
+	uint32_t i;
+
+	for (i = 0; i < n; i++) {
+		if (ISSET_BIT(*pkts_mask, i)) {
+			len = rte_pktmbuf_data_len(pkts[i]);
+			len = len - ETH_HDR_SIZE;
+
+			uint32_t enb_addr =
+					sess_info[i]->bear_sess_info->dl_s1_info.enb_addr.u.ipv4_addr;
+			construct_ipv4_hdr(pkts[i], len, IP_PROTO_UDP,
+					ntohl(app.s1u_ip), enb_addr);
+
+			/*Update tied in GTP U header*/
+			((struct gtpu_hdr *)get_mtogtpu(pkts[i]))->teid  =
+					ntohl(sess_info[i]->bear_sess_info->dl_s1_info.enb_teid);
+		}
 	}
 }
 
@@ -610,7 +801,6 @@ update_adc_rid_from_domain_lookup(uint32_t *rb, uint32_t *rc, uint32_t n)
 		if (rc[i] != 0)
 			rb[i] = rc[i];
 }
-
 
 /**
  * @brief create hash table.
@@ -728,7 +918,108 @@ void dp_table_init(void)
 		rte_exit(EXIT_FAILURE,
 			"error in adding default entry to"
 			" adc filter table %d\n", ret);
+
+	/*
+	 * Create SDF-PCC Hash table
+	 */
+	hash_create("sdf_pcc_hash", &rte_sdf_pcc_hash, SDF_FILTER_TABLE_SIZE,
+			sizeof(uint32_t));
+
+	/*
+	 * Create ADC-PCC Hash table
+	 */
+	hash_create("adc_pcc_hash", &rte_adc_pcc_hash, SDF_FILTER_TABLE_SIZE,
+			sizeof(uint32_t));
+
+#ifdef PCAP_GEN
+	printf("\n\npcap files will be overwritten. Press ENTER to continue...\n");
+	getchar();
+
+	uint8_t east_file[PCAP_FILENAME_LEN] = {0};
+	uint8_t west_file[PCAP_FILENAME_LEN] = {0};
+
+	switch(app.spgw_cfg) {
+		case SPGWU:
+			strncpy(east_file, SPGW_SGI_PCAP_FILE,
+					sizeof(SPGW_SGI_PCAP_FILE));
+			strcpy(west_file, SPGW_S1U_PCAP_FILE,
+					sizeof(SPGW_S1U_PCAP_FILE));
+			break;
+
+		case SGWU:
+			strncpy(east_file, SGW_S5S8_PCAP_FILE,
+					sizeof(SGW_S5S8_PCAP_FILE));
+			strncpy(west_file, SGW_S1U_PCAP_FILE,
+					sizeof(SGW_S1U_PCAP_FILE));
+			break;
+
+		case PGWU:
+			strncpy(east_file, PGW_SGI_PCAP_FILE,
+					sizeof(PGW_SGI_PCAP_FILE));
+			strncpy(west_file, PGW_S5S8_PCAP_FILE,
+					sizeof(PGW_S5S8_PCAP_FILE));
+			break;
+
+		default:
+		break;
+	}
+
+	pcap_dumper_east = init_pcap(east_file);
+	pcap_dumper_west = init_pcap(west_file);
+#endif /* PCAP_GEN */
+
 #else
 	/*TODO: Will add an API to configure DP Tables */
 #endif
 }
+
+
+#ifdef PCAP_GEN
+
+/**
+ * initialize pcap dumper.
+ * @param pcap_filename
+ *  pointer to pcap output filename.
+ */
+pcap_dumper_t *
+init_pcap(char* pcap_filename)
+{
+	pcap_dumper_t *pcap_dumper = NULL;
+	pcap_t *pcap = NULL;
+	pcap = pcap_open_dead(DLT_EN10MB, UINT16_MAX);
+
+	if ((pcap_dumper = pcap_dump_open(pcap, pcap_filename)) == NULL) {
+		RTE_LOG(ERR, DP, "Error in opening pcap file.\n");
+		return NULL;
+	}
+	return pcap_dumper;
+}
+
+/**
+ * write into pcap file.
+ * @param pkts
+ *  pointer to mbuf of packets.
+ * @param n
+ *  number of pkts.
+ * @param pcap_dumper
+ *  pointer to pcap dumper.
+ */
+void dump_pcap(struct rte_mbuf **pkts, uint32_t n,
+pcap_dumper_t *pcap_dumper)
+{
+	uint32_t i;
+
+	for (i = 0; i < n; i++) {
+		struct pcap_pkthdr pcap_hdr;
+		uint8_t *pkt = rte_pktmbuf_mtod(pkts[i], uint8_t *);
+
+		pcap_hdr.len = pkts[i]->pkt_len;
+		pcap_hdr.caplen = pcap_hdr.len;
+		gettimeofday(&(pcap_hdr.ts), NULL);
+
+		pcap_dump((u_char *)pcap_dumper, &pcap_hdr, pkt);
+		pcap_dump_flush((pcap_dumper_t *)pcap_dumper);
+	}
+	return;
+}
+#endif /* PCAP_GEN */

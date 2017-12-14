@@ -121,10 +121,10 @@ static void epc_init_lcores(void)
 {
 	unsigned i;
 
-	epc_alloc_lcore(epc_rx, &epc_app.rx_params[S1U_PORT_ID],
-						epc_app.core_rx[S1U_PORT_ID]);
-	epc_alloc_lcore(epc_rx, &epc_app.rx_params[SGI_PORT_ID],
-						epc_app.core_rx[SGI_PORT_ID]);
+	epc_alloc_lcore(epc_rx, &epc_app.rx_params[WEST_PORT_ID],
+						epc_app.core_rx[WEST_PORT_ID]);
+	epc_alloc_lcore(epc_rx, &epc_app.rx_params[EAST_PORT_ID],
+						epc_app.core_rx[EAST_PORT_ID]);
 
 	epc_alloc_lcore(epc_load_balance, &epc_app.lb_params,
 						epc_app.core_load_balance);
@@ -134,10 +134,11 @@ static void epc_init_lcores(void)
 		epc_alloc_lcore(epc_worker_core, &epc_app.worker[i],
 				epc_app.worker_cores[i]);
 	}
-	epc_alloc_lcore(epc_tx, &epc_app.tx_params[S1U_PORT_ID],
-						epc_app.core_tx[S1U_PORT_ID]);
-	epc_alloc_lcore(epc_tx, &epc_app.tx_params[SGI_PORT_ID],
-						epc_app.core_tx[SGI_PORT_ID]);
+
+	epc_alloc_lcore(epc_tx, &epc_app.tx_params[WEST_PORT_ID],
+						epc_app.core_tx[WEST_PORT_ID]);
+	epc_alloc_lcore(epc_tx, &epc_app.tx_params[EAST_PORT_ID],
+						epc_app.core_tx[EAST_PORT_ID]);
 
 	epc_alloc_lcore(epc_iface_core, NULL, epc_app.core_iface);
 
@@ -145,10 +146,6 @@ static void epc_init_lcores(void)
 #ifdef STATS
 	epc_alloc_lcore(epc_stats_core, NULL, epc_app.core_stats);
 #endif
-	RTE_LOG(DEBUG, EPC, "LB_CORE=%d Port %d Core = %d Port %d Core =%d\n",
-			epc_app.core_load_balance, app.s1u_port,
-			epc_app.core_rx[app.s1u_port], app.sgi_port,
-			epc_app.core_tx[app.sgi_port]);
 }
 
 #define for_each_port(port) for (port = 0; port < epc_app.n_ports; port++)
@@ -294,11 +291,82 @@ static int epc_lcore_main_loop(__attribute__ ((unused))
 	return 0;
 }
 
-void epc_init_packet_framework(uint8_t sgi_port_id, uint8_t s1u_port_id)
+void epc_init_packet_framework(uint8_t east_port_id, uint8_t west_port_id)
 {
 	unsigned i;
 
 	if (epc_app.n_ports > NUM_SPGW_PORTS) {
+		printf("number of ports exceeds a configured number %d\n",
+				epc_app.n_ports);
+		exit(1);
+	}
+
+	epc_app.ports[WEST_PORT_ID] = west_port_id;
+	epc_app.ports[EAST_PORT_ID] = east_port_id;
+	RTE_LOG(INFO, DP, "west rx/tx running on lcore    :\t%d\n",
+						epc_app.core_rx[WEST_PORT_ID]);
+	RTE_LOG(INFO, DP, "east rx/tx running on lcore    :\t%d\n",
+						epc_app.core_rx[EAST_PORT_ID]);
+	RTE_LOG(INFO, DP, "load balancer running on lcore:\t%d\n",
+						epc_app.core_load_balance);
+	RTE_LOG(INFO, DP, "multicast running on lcore    :\t%d\n",
+						epc_app.core_mct);
+	RTE_LOG(INFO, DP, "iface running on lcore        :\t%d\n",
+						epc_app.core_iface);
+	RTE_LOG(INFO, DP, "spns dns running on lcore        :\t%d\n",
+						epc_app.core_spns_dns);
+
+
+#ifdef STATS
+	RTE_LOG(INFO, DP, "stats timer running on lcore  :\t%d\n",
+						epc_app.core_stats);
+#endif
+	RTE_LOG(INFO, DP, "workers running on lcores :\n");
+	for (i = 0; i < epc_app.num_workers; ++i) {
+		RTE_LOG(INFO, DP, "\t%u\n", epc_app.worker_cores[i]);
+	}
+
+	/*
+	 * Initialize rings
+	 */
+	epc_init_rings();
+	epc_spns_dns_init();
+
+	/*
+	 * Initialize pipelines
+	 */
+	epc_tx_init(&epc_app.tx_params[WEST_PORT_ID],
+				epc_app.core_rx[WEST_PORT_ID], WEST_PORT_ID);
+	epc_tx_init(&epc_app.tx_params[EAST_PORT_ID],
+				epc_app.core_rx[EAST_PORT_ID], EAST_PORT_ID);
+
+	epc_arp_icmp_init();
+	epc_load_balance_init(&epc_app.lb_params);
+
+	for (i = 0; i < epc_app.num_workers; i++)
+		epc_worker_core_init(&epc_app.worker[i],
+				epc_app.worker_cores[i], i);
+
+	epc_rx_init(&epc_app.rx_params[WEST_PORT_ID],
+				epc_app.core_rx[WEST_PORT_ID], WEST_PORT_ID);
+	epc_rx_init(&epc_app.rx_params[EAST_PORT_ID],
+				epc_app.core_rx[EAST_PORT_ID], EAST_PORT_ID);
+
+	/*
+	 * Assign pipelines to cores
+	 */
+	epc_init_lcores();
+
+	/* Init IPC msgs */
+	iface_init_ipc_node();
+
+}
+#if 0
+void epc_init_packet_framework(uint8_t sgi_port_id, uint8_t s1u_port_id)
+{
+	unsigned i;
+
+	if (epc_app.n_ports > num_spgw_ports) {
 		printf("number of ports exceeds a configured number %d\n",
 				epc_app.n_ports);
 		exit(1);
@@ -364,6 +432,7 @@ void epc_init_packet_framework(uint8_t sgi_port_id, uint8_t s1u_port_id)
 	iface_init_ipc_node();
 
 }
+#endif
 
 void packet_framework_launch(void)
 {

@@ -53,15 +53,60 @@ int main(int argc, char **argv)
 	/* DP Init */
 	dp_init(argc, argv);
 
+	switch (app.spgw_cfg) {
+		case SGWU:
+			/* Pipeline Init */
+			epc_init_packet_framework(app.s5s8_sgwu_port, app.s1u_port);
+
+			/**
+			 *UE <--S1U-->[SGW]<--S5/8-->[PGW]<--SGi-->
+			 */
+
+			/*S1U port handler*/
+			register_worker(s1u_pkt_handler, app.s1u_port);
+
+			/*S5/8 port handler*/
+			register_worker(sgw_s5_s8_pkt_handler, app.s5s8_sgwu_port);
+			break;
+
+		case PGWU:
+			/* Pipeline Init */
+			epc_init_packet_framework(app.sgi_port, app.s5s8_pgwu_port);
+
+			/**
+			 *UE <--S1U-->[SGW]<--S5/8-->[PGW]<--SGi-->
+			 */
+
+			/*S5/8 port handler*/
+			register_worker(pgw_s5_s8_pkt_handler, app.s5s8_pgwu_port);
+
+			/*SGi port handler*/
+			register_worker(sgi_pkt_handler, app.sgi_port);
+			break;
+
+		case SPGWU:
+			/* Pipeline Init */
+			epc_init_packet_framework(app.sgi_port, app.s1u_port);
+
+			/**
+			 * UE <--S1U--> [SPGW] <--SGi-->
+			 */
+
+			/*S1U port handler*/
+			register_worker(s1u_pkt_handler, app.s1u_port);
+
+			/*SGi port handler*/
+			register_worker(sgi_pkt_handler, app.sgi_port);
+			break;
+
+		default:
+			rte_exit(EXIT_FAILURE, "Invalid DP type(SPGW_CFG).\n");
+	}
+
 	finalize_cur_cdrs(cdr_path);
 
 	sess_cdr_init();
 
-	/* Pipeline Init */
-	epc_init_packet_framework(app.sgi_port, app.s1u_port);
-
-	register_worker(sgi_pkt_handler, app.sgi_port);
-	register_worker(s1u_pkt_handler, app.s1u_port);
 
 	iface_module_constructor();
 	dp_table_init();

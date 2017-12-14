@@ -236,8 +236,6 @@ action_cb(struct dp_session_info *session,
 	uint8_t gate_status = UINT8_MAX;
 	if (pcc_rule)
 		gate_status = pcc_rule->gate_status;
-	else if (adc_rule)
-		gate_status = adc_rule->gate_status;
 	else
 		PANIC_ON_UNDEFINED_RULE();
 	switch (gate_status) {
@@ -256,8 +254,6 @@ sponsor_id_cb(struct dp_session_info *session,
 		struct adc_rules *adc_rule) {
 	if (pcc_rule)
 		return pcc_rule->sponsor_id;
-	else if (adc_rule)
-		return adc_rule->sponsor_id;
 	PANIC_ON_UNDEFINED_RULE();
 	return 0;
 }
@@ -269,8 +265,6 @@ service_id_cb(struct dp_session_info *session,
 		struct adc_rules *adc_rule) {
 	if (pcc_rule)
 		return pcc_rule->service_id;
-	else if (adc_rule)
-		return adc_rule->service_id;
 	PANIC_ON_UNDEFINED_RULE();
 	return 0;
 }
@@ -282,12 +276,13 @@ rate_group_cb(struct dp_session_info *session,
 		struct adc_rules *adc_rule) {
 	if (pcc_rule)
 		return pcc_rule->rating_group;
-	else if (adc_rule)
-		return adc_rule->rating_group;
 	PANIC_ON_UNDEFINED_RULE();
 	return 0;
 }
 
+
+#if 0
+/* TODO : Param is not present in pcc or adc rules file */
 static const char *
 tarriff_group_cb(struct dp_session_info *session,
 		struct chrg_data_vol *vol,
@@ -313,7 +308,7 @@ tarriff_time_cb(struct dp_session_info *session,
 	PANIC_ON_UNDEFINED_RULE();
 	return NULL;
 }
-
+#endif
 /* cdr field definition macros */
 #define DEFINE_VALUE(head, val) {\
 	.header = head, \
@@ -355,8 +350,10 @@ struct cdr_field_t cdr_fields[NUM_CDR_FIELDS] = {
 		DEFINE_CB_STR("sponsor_id", sponsor_id_cb),
 		DEFINE_CB_32("service_id", service_id_cb),
 		DEFINE_CB_32("rate_group", rate_group_cb),
-		DEFINE_CB_STR("tarriff_group", tarriff_group_cb),
-		DEFINE_CB_STR("tarriff_time", tarriff_time_cb),
+		/**
+		 * DEFINE_CB_STR("tarriff_group", tarriff_group_cb),
+		 * DEFINE_CB_STR("tarriff_time", tarriff_time_cb),
+		 */
 };
 
 static void

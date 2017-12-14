@@ -16,6 +16,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <unistd.h>
 
 #include <rte_malloc.h>
 #include <rte_lcore.h>
@@ -37,7 +38,6 @@ const char *direction_str[] = {
 
 const pkt_fltr catch_all = {
 		.direction = TFT_DIRECTION_BIDIRECTIONAL,
-		.precedence = 0,
 		.remote_ip_addr.s_addr = 0,
 		.remote_ip_mask = 0,
 		.remote_port_low = 0,
@@ -74,15 +74,6 @@ uint64_t cbs;
 uint64_t ebs;
 uint16_t ulambr_idx;
 uint16_t dlambr_idx;
-static uint32_t name_to_num(char *name)
-{
-	uint32_t num = 0;
-	int i;
-
-	for (i = strlen(name) - 1; i >= 0; i--)
-		num = (num << 4) | (name[i] - 'a');
-	return num;
-}
 
 int
 get_packet_filter_id(const pkt_fltr *pf)
@@ -143,8 +134,7 @@ push_sdf_rules(uint16_t index)
 	    inet_ntoa(sdf_filters[index]->remote_ip_addr));
 
 	struct pkt_filter pktf = {
-			.pcc_rule_id = index,
-			.precedence = sdf_filters[index]->precedence,
+			.pcc_rule_id = index
 	};
 
 	if (sdf_filters[index]->direction & TFT_DIRECTION_DOWNLINK_ONLY) {
@@ -175,9 +165,9 @@ push_sdf_rules(uint16_t index)
 			sdf_filters[index]->proto, sdf_filters[index]->proto_mask);
 	}
 
-	printf("Installing %s pkt_filter #%"PRIu16" p-%"PRIu8": %s",
+	printf("Installing %s pkt_filter #%"PRIu16" : %s",
 	    direction_str[sdf_filters[index]->direction], index,
-		sdf_filters[index]->precedence, pktf.u.rule_str);
+		pktf.u.rule_str);
 
 	if (sdf_filter_entry_add(dp_id, pktf) < 0)
 		rte_exit(EXIT_FAILURE,"SDF filter entry add fail !!!");
@@ -384,15 +374,6 @@ init_sdf_rules(void)
 		snprintf(sectionname, sizeof(sectionname),
 				"SDF_FILTER_%u", i);
 
-		entry = rte_cfgfile_get_entry(file, sectionname,
-				"RATING_GROUP");
-		if (!entry)
-			rte_panic(
-			    "Invalid sdf configuration file format - "
-			    "each filter must contain RATING_GROUP entry\n");
-
-		pf.rating_group = atoi(entry);
-
 		entry = rte_cfgfile_get_entry(file, sectionname, "DIRECTION");
 		if (entry) {
 			if (strcmp(entry, "bidirectional") == 0)
@@ -402,10 +383,6 @@ init_sdf_rules(void)
 			else if (strcmp(entry, "downlink_only") == 0)
 				pf.direction = TFT_DIRECTION_DOWNLINK_ONLY;
 		}
-
-		entry = rte_cfgfile_get_entry(file, sectionname, "PRECEDENCE");
-		if (entry)
-			pf.precedence = atoi(entry);
 
 		entry = rte_cfgfile_get_entry(file, sectionname, "IPV4_REMOTE");
 		if (entry) {
@@ -504,19 +481,16 @@ init_pcc_rules(void)
 
 	if (!entry)
 		rte_panic("Invalid pcc configuration file format\n");
-
-
 	num_pcc_rules = atoi(entry);
+
 	entry = rte_cfgfile_get_entry(file,
 				"GLOBAL", "UL_AMBR_MTR_PROFILE_IDX");
-
 	if (!entry)
 		rte_panic("Invalid AMBR configuration file format\n");
 	ulambr_idx = atoi(entry);
 
 	entry = rte_cfgfile_get_entry(file,
 				"GLOBAL", "DL_AMBR_MTR_PROFILE_IDX");
-
 	if (!entry)
 		rte_panic("Invalid AMBR configuration file format\n");
 	dlambr_idx = atoi(entry);
@@ -538,7 +512,6 @@ init_pcc_rules(void)
 			rte_panic(
 			    "Invalid pcc configuration file format - "
 			    "each filter must contain RATING_GROUP entry\n");
-
 		tmp_pcc.rating_group = atoi(entry);
 
 		entry = rte_cfgfile_get_entry(file, sectionname, "SERVICE_ID");
@@ -602,11 +575,44 @@ init_pcc_rules(void)
 
 		entry = rte_cfgfile_get_entry(file,
 					sectionname, "DL_MBR_MTR_PROFILE_IDX");
-
 		if (!entry)
 			rte_panic("Invalid MTR_PROFILE_IDX configuration\n");
-
 		tmp_pcc.qos.dl_mtr_profile_index = atoi(entry);
+
+		/*Read mapped ADC or SDF rules. Either ADC or SDF rules will be p
+		 * resent, not both. SDF count will be 0 if ADC rules are present.*/
+		tmp_pcc.sdf_idx_cnt = 0;
+		entry = rte_cfgfile_get_entry(file,
+					sectionname, "ADC_FILTER_IDX");
+		if (!entry) {
+			/*No ADC entry, so check for SDF entry*/
+			entry = rte_cfgfile_get_entry(file,
+					sectionname, "SDF_FILTER_IDX");
+			if (!entry)
+				rte_panic("Missing SDF or ADC rule for PCC rule %d\n",i);
+
+			char *next = NULL;
+			uint16_t sdf_cnt = 0;
+			/*SDF entries format : "1, 2: 10, 30"*/
+			for(int x=0; x < MAX_SDF_IDX_COUNT; ++x) {
+				int sdf_idx = strtol(entry, &next, 10);
+				if (errno != 0) {
+					perror("strtol");
+					rte_panic("Invalid SDF index value\n");
+				}
+				if('\0' == *entry) break;
+				/*If non number e.g.',', then ignore and continue*/
+				if(entry == next && (0 == sdf_idx)){
+					entry = ++next;
+					continue;
+				}
+				entry = next;
+				tmp_pcc.sdf_idx[sdf_cnt++] = sdf_idx;
+			}
+			tmp_pcc.sdf_idx_cnt = sdf_cnt;
+		} else {
+			tmp_pcc.adc_idx = atoi(entry);
+		}
 
 		ret = install_pcc_rules(tmp_pcc);
 		if (ret < 0) {
@@ -628,6 +634,11 @@ init_packet_filters(void)
 
 	/* init pcc rule tables on dp*/
 	init_pcc_rules();
+	/*TODO: As workaround adding sleep before pushing SDF rules. Otherwise
+	 * those are not processed on DP.
+	 * Need to debug and fix.
+	 **/
+	sleep(1);
 
 	/* init dpn sdf rules table configuring on dp*/
 	init_sdf_rules();
@@ -652,14 +663,6 @@ static void print_adc_rule(struct adc_rules adc_rule)
 	default:
 		printf("ERROR IN ADC RULE");
 	}
-	printf("%8s %15s %15u %15u %15u %15s %15s <\n",
-			(adc_rule.gate_status == CLOSE) ? "CLOSE" : "OPEN",
-			adc_rule.sponsor_id,
-			adc_rule.service_id,
-			adc_rule.mtr_profile_index,
-			adc_rule.rating_group,
-			adc_rule.tarriff_group,
-			adc_rule.tarriff_time);
 }
 
 void
@@ -685,7 +688,6 @@ parse_adc_rules(void)
 
 	for (i = 0; i < num_adc_rules; ++i) {
 		char sectionname[64] = {0};
-		char buff[64] = {0};
 		struct adc_rules tmp_adc = { 0 };
 		struct in_addr addr;
 
@@ -743,65 +745,7 @@ parse_adc_rules(void)
 						tmp_adc.sel_type);
 		}
 
-		entry = rte_cfgfile_get_entry(file, sectionname,
-				"GATE_STATUS");
 
-		if (entry)
-			tmp_adc.gate_status = atoi(entry);
-
-		entry = rte_cfgfile_get_entry(file, sectionname,
-				"RATING_GROUP");
-
-		if (entry) {
-			strncpy(buff, entry, sizeof(buff));
-			tmp_adc.rating_group = name_to_num(buff);
-		}
-
-		entry = rte_cfgfile_get_entry(file, sectionname,
-				"SERVICE_ID");
-
-		if (entry) {
-			strncpy(buff, entry, sizeof(buff));
-			tmp_adc.service_id = name_to_num(buff);
-
-			if (!strcmp(buff, "CIPA"))
-				puts("CIPA Rule");
-		}
-
-		entry = rte_cfgfile_get_entry(file, sectionname,
-				"PRECEDENCE");
-
-		if (entry)
-			tmp_adc.precedence = atoi(entry);
-
-		entry = rte_cfgfile_get_entry(file, sectionname,
-				"MTR_PROFILE_INDEX");
-
-		if (entry)
-			tmp_adc.mtr_profile_index = atoi(entry);
-
-		entry = rte_cfgfile_get_entry(file, sectionname,
-				"SPONSOR_ID");
-
-		if (entry)
-			strncpy(tmp_adc.sponsor_id, entry,
-					sizeof(tmp_adc.sponsor_id));
-
-		entry = rte_cfgfile_get_entry(file, sectionname,
-				"TARRIFF_GROUP");
-
-		if (entry)
-			strncpy(tmp_adc.tarriff_group, entry,
-					sizeof(tmp_adc.tarriff_group));
-
-		entry = rte_cfgfile_get_entry(file, sectionname,
-				"TARRIFF_TIME");
-
-		if (entry)
-			strncpy(tmp_adc.tarriff_time, entry,
-					sizeof(tmp_adc.tarriff_time));
-
-		memset(tmp_adc.rule_name, 0, sizeof(tmp_adc.rule_name));
 		/* Add Default rule */
 		adc_rule_id[rule_id - 1] = rule_id;
 		tmp_adc.rule_id = rule_id++;

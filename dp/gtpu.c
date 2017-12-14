@@ -23,15 +23,19 @@
  * Function to construct gtpu header.
  *
  * @param m
- *	m - mbuf pointer
+ *  m - mbuf pointer
  * @param teid
- *	teid - tunnel endpoint id
+ *  teid - tunnel endpoint id
  * @param tpdu_len
- *	tpdu_len - length of tunneled pdu
+ *  tpdu_len - length of tunneled pdu
  *
  * @return
- *	None
+ *  None
  */
+#ifdef GTPU_HDR_SEQNB
+	static uint16_t gtpu_seqnb = 0;
+#endif  /* GTPU_HDR_SEQNB */
+
 static inline void
 construct_gtpu_hdr(struct rte_mbuf *m, uint32_t teid, uint16_t tpdu_len)
 {
@@ -39,14 +43,26 @@ construct_gtpu_hdr(struct rte_mbuf *m, uint32_t teid, uint16_t tpdu_len)
 
 	/* Construct GPDU header. */
 	gpdu_hdr = (uint8_t *) get_mtogtpu(m);
-
+#ifdef GTPU_HDR_SEQNB
+	*(gpdu_hdr++) = (GTPU_VERSION << 5) |
+					(GTP_PROTOCOL_TYPE_GTP << 4) |
+					(GTPU_SEQPRESENT << 1);
+	*(gpdu_hdr++) = GTP_GPDU;
+	tpdu_len = tpdu_len + sizeof(GTPU_STATIC_SEQNB);
+	*((uint16_t *) gpdu_hdr) = htons(tpdu_len);
+	gpdu_hdr += 2;
+	*((uint32_t *) gpdu_hdr) = htonl(teid);
+	gpdu_hdr +=sizeof(teid);
+	*((uint32_t *) gpdu_hdr) = GTPU_STATIC_SEQNB |
+								htons(gtpu_seqnb);
+	gtpu_seqnb++;
+#else
 	*(gpdu_hdr++) = (GTPU_VERSION << 5) | (GTP_PROTOCOL_TYPE_GTP << 4);
-
 	*(gpdu_hdr++) = GTP_GPDU;
 	*((uint16_t *) gpdu_hdr) = htons(tpdu_len);
 	gpdu_hdr += 2;
-
 	*((uint32_t *) gpdu_hdr) = htonl(teid);
+#endif  /* GTPU_HDR_SEQNB */
 }
 
 int decap_gtpu_hdr(struct rte_mbuf *m)
@@ -102,6 +118,9 @@ uint32_t gtpu_inner_src_ip(struct rte_mbuf *m)
 	struct ipv4_hdr *inner_ipv4_hdr;
 
 	pkt_ptr = (uint8_t *) get_mtogtpu(m);
+	RTE_LOG(DEBUG, DP, "ASR-SpirentvLS gtpu.c: GPDU_HDR_SIZE %u\n",
+			GPDU_HDR_SIZE);
+
 	pkt_ptr += GPDU_HDR_SIZE;
 	inner_ipv4_hdr = (struct ipv4_hdr *)pkt_ptr;
 

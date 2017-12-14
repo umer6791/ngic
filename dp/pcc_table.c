@@ -22,8 +22,11 @@
 #include "acl.h"
 #include "meter.h"
 #include "interface.h"
+#include "structs.h"
 
 struct rte_hash *rte_pcc_hash;
+extern struct rte_hash *rte_sdf_pcc_hash;
+extern struct rte_hash *rte_adc_pcc_hash;
 /**
  * @brief Called by DP to lookup key-value in PCC table.
  *
@@ -77,10 +80,19 @@ dp_pcc_entry_add(struct dp_id dp_id, struct pcc_rules *entry)
 	}
 
 	RTE_LOG(INFO, DP, "PCC_TBL ADD: rule_id:%u, addr:0x%"PRIx64
-			", ul_mtr_idx:%u, dl_mtr_idx:%u\n",
+			", ul_mtr_idx:%u, dl_mtr_idx:%u, sdf_cnt=%d, adc_idx=%d\n",
 			pcc->rule_id, (uint64_t)pcc,
 			pcc->qos.ul_mtr_profile_index,
-			pcc->qos.dl_mtr_profile_index);
+			pcc->qos.dl_mtr_profile_index, pcc->sdf_idx_cnt, pcc->adc_idx);
+
+	/*If there are no SDF indices send(count <0) then ADC parameters are passed.
+	 * Either ADC or SDF will be passed.*/
+	if (entry->sdf_idx_cnt > 0)
+		filter_pcc_entry_add(FILTER_SDF, key32, entry->precedence,
+				entry->gate_status, entry->sdf_idx_cnt, entry->sdf_idx);
+	else
+		filter_pcc_entry_add(FILTER_ADC, key32, entry->precedence,
+				entry->gate_status, 1, &entry->adc_idx);
 	return 0;
 }
 int
@@ -101,6 +113,7 @@ dp_pcc_entry_delete(struct dp_id dp_id, struct pcc_rules *entry)
 	ret = rte_hash_del_key(rte_pcc_hash, &key32);
 	if (ret < 0)
 		return -1;
+
 	rte_free(pcc);
 	return 0;
 }
@@ -180,3 +193,227 @@ void app_pcc_tbl_init(void)
 	iface_ipc_register_msg_cb(MSG_PCC_TBL_DEL, cb_pcc_entry_delete);
 }
 
+/**
+ * Returns insertion position in sorted array, after moving elements.
+ * Capacity of pcc should be n+1
+ * @param pcc
+ *	Pointer to pcc_id_precedence structure
+ * @param n
+ *	no of entries in pcc
+ * @param precedence
+ *	Comparison is based on precedence.
+ * @return
+ * Insert position for new element.
+ */
+static uint32_t
+get_insert_position(struct pcc_id_precedence *pcc, uint32_t n,
+		uint32_t precedence)
+{
+	int i;
+	for(i = n-1; (i >= 0 && pcc[i].precedence <= precedence); i--)
+		pcc[i+1] = pcc[i];
+	return i+1;
+}
+
+/**
+ * Returns delete position in sorted array, after moving elements.
+ * Capacity of pcc should be n-1
+ * @param pcc
+ *	Pointer to pcc_id_precedence structure
+ * @param n
+ *	no of entries in pcc
+ * @param precedence
+ *	Comparison is based on precedence.
+ * @return
+ * Insert position for new element.
+ */
+static uint32_t
+get_delete_position(struct pcc_id_precedence *pcc, uint32_t n,
+		uint32_t pcc_id)
+{
+	int i;
+	for(i = n-1; (i >= 0 && pcc[i].pcc_id == pcc_id); i--)
+		return i;
+	return -1;
+}
+
+/**
+ * Add entry into SDF-PCC or ADC-PCC association hash.
+ * @param type
+ *  Type of hash table, SDF/ADC.
+ * @param pcc_id
+ *  PCC rule id to be added.
+ * @param precedence
+ *  PCC rule precedence.
+ * @param gate_status
+ *  PCC rule gate status.
+ * @param  n
+ *  Number of SDF/ADC rules.
+ * @param  rule_ids
+ *  Pointer to SDF/ADC rule ids.
+ *
+ * @return
+ *  0 - on success
+ *  -1 - on failure
+ */
+int
+filter_pcc_entry_add(enum filter_pcc_type type, uint32_t pcc_id,
+		uint32_t precedence, uint8_t gate_status, uint32_t n,
+		uint32_t rule_ids[])
+{
+	int ret;
+	uint32_t i;
+	struct filter_pcc_data *pinfo = NULL;
+	struct rte_hash *hash = NULL;
+	uint32_t ruleid;
+
+	if (type == FILTER_SDF)
+		hash = rte_sdf_pcc_hash;
+	else if (type == FILTER_ADC)
+		hash = rte_adc_pcc_hash;
+	else
+		return -1;
+
+	for (i = 0; i < n; i++) {
+		/* TODO: In sdf/adc/pcc config files, section start with 0
+		 *       but CP pushes rules starting with id = 1.
+		 *       In PCC config file, SDF_FILTER_IDX/SDF_FILTER_IDX defines
+		 *       rule ids as per SDF/ADC file (ie starting from 0).
+		 *       So incrementing rule_ids[i] by 1 to consider above scenario.
+		 *       Need to revisit.
+		 */
+		ruleid = rule_ids[i] + 1;
+		ret = rte_hash_lookup_data(hash, &ruleid, (void **)&pinfo);
+
+		if (ret < 0 || pinfo == NULL) {
+			/* No data found for sdf id, insert new entry*/
+
+			struct pcc_id_precedence *pcc = rte_zmalloc("pcc_id_preced",
+					sizeof(struct pcc_id_precedence), RTE_CACHE_LINE_SIZE);
+			if (pcc == NULL)
+				rte_panic("Failed to allocate memory for pcc_id_precedence");
+
+			pcc->pcc_id = pcc_id;
+			pcc->precedence = precedence;
+			pcc->gate_status = gate_status;
+
+			struct filter_pcc_data *data = rte_zmalloc("filter_pcc_data",
+					sizeof(struct filter_pcc_data), RTE_CACHE_LINE_SIZE);
+
+			if (data == NULL) {
+				rte_free(pcc);
+				rte_panic("Failed to allocate memory for filter_pcc_data");
+			}
+
+			data->entries = 1;
+			data->pcc_info = pcc;
+
+			ret = rte_hash_add_key_data(hash, &ruleid, data);
+
+			if (ret < 0) {
+				rte_free(pcc);
+				rte_free(data);
+				RTE_LOG(DEBUG, DP, "Failed to add entry in rte_sdf_pcc hash.\n");
+				continue;
+			}
+		} else {
+			struct pcc_id_precedence *pcc = rte_zmalloc("pcc_id_precedence",
+					(pinfo->entries + 1) * sizeof(struct pcc_id_precedence),
+					RTE_CACHE_LINE_SIZE);
+
+			if (pcc == NULL)
+				rte_panic("Failed to allocate memory for pcc_id_precedence");
+
+			rte_memcpy(pcc, pinfo->pcc_info,
+					(pinfo->entries) * sizeof(struct pcc_id_precedence));
+			uint32_t insert_pos = get_insert_position(pcc, pinfo->entries,
+									precedence);
+			pcc[insert_pos].pcc_id = pcc_id;
+			pcc[insert_pos].precedence = precedence;
+			pcc[insert_pos].gate_status = gate_status;
+
+			struct filter_pcc_data *data = rte_zmalloc("filter_pcc_data",
+					sizeof(struct filter_pcc_data), RTE_CACHE_LINE_SIZE);
+
+			if (data == NULL)
+				rte_panic("Failed to allocate memory for filter_pcc_data");
+
+			data->entries = pinfo->entries;
+			data->pcc_info = pcc;
+
+			ret = rte_hash_del_key(hash, &ruleid);
+			if (ret < 0) {
+				rte_free(pcc);
+				rte_free(data);
+				RTE_LOG(DEBUG, DP, "Failed to delete from rte_sdf_pcc hash\n");
+				continue;
+			}
+
+			rte_free(pinfo->pcc_info);
+			rte_free(pinfo);
+			pinfo = NULL;
+
+			ret = rte_hash_add_key_data(hash,
+					&ruleid, data);
+			if (ret < 0) {
+				rte_free(pcc);
+				rte_free(data);
+				RTE_LOG(DEBUG, DP,
+						"Failed to add entry in sdf_pcc hash table\n");
+				continue;
+			}
+		}
+	}
+	return 0;
+}
+
+/**
+ * Search SDF-PCC or ADC-PCC association hash for SDF/ADC ruleid as a key
+ * @param type
+ *  Type of hash table, SDF/ADC.
+ * @param pcc_id
+ *  SDF/ADC rule ids to be used for searching.
+ * @param  n
+ *  Number of SDF/ADC rules.
+ * @param  pcc_info
+ *  Pointer to matched PCC info.
+ *
+ * @return
+ *  0 - on success
+ *  -1 - on failure
+ */
+int
+filter_pcc_entry_lookup(enum filter_pcc_type type, uint32_t* rule_ids,
+		uint32_t n, struct pcc_id_precedence *pcc_ids)
+{
+	int ret = 0;
+	uint32_t i;
+	struct filter_pcc_data *pinfo = NULL;
+	struct rte_hash *hash = NULL;
+
+	if (type == FILTER_SDF)
+		hash = rte_sdf_pcc_hash;
+	else if (type == FILTER_ADC)
+		hash = rte_adc_pcc_hash;
+	else {
+		RTE_LOG(INFO, DP, "filter_pcc_entry_lookup hash type mistmatch");
+		return -1;
+	}
+
+	for (i = 0; i < n; i++) {
+		ret = rte_hash_lookup_data(hash, &rule_ids[i], (void **)&pinfo);
+
+		if (ret < 0 || pinfo == NULL) {
+			/* TODO : If there is no matching pcc rule, what should be
+			 *        values of pcc? Currently hardcoding to 0 with
+			 *        gate-status 1 (pass traffic)
+			 */
+			pcc_ids[i].pcc_id = 0;
+			pcc_ids[i].precedence = 0;
+			pcc_ids[i].gate_status = 1;
+		} else {
+			pcc_ids[i] = pinfo->pcc_info[0];
+		}
+	}
+	return 0;
+}

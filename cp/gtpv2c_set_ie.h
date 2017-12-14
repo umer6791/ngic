@@ -30,6 +30,21 @@
 
 #define MAX_GTPV2C_LENGTH (MAX_GTPV2C_UDP_LEN-sizeof(struct gtpc_t))
 
+/**
+ * Copies existing information element to gtp message
+ * within transmission buffer with the GTP header '*header'
+ *
+ *
+ * @param header
+ *   header pre-populated that contains transmission buffer for message
+ * @param src_ie
+ *   Existing Information element to copy into message
+ * @return
+ *   size of information element copied into message
+ */
+uint16_t
+set_ie_copy(gtpv2c_header *header, gtpv2c_ie *src_ie);
+
 
 /**
  * Creates and populates cause information element with accepted value
@@ -103,6 +118,18 @@ set_ipv4_fteid_ie(gtpv2c_header *header,
 uint16_t
 set_ipv4_paa_ie(gtpv2c_header *header, enum ie_instance instance,
 	struct in_addr ipv4);
+
+/**
+ * Returns ipv4 UE address from  'PDN Address Allocation' information element
+ * address of User Equipment
+ *
+ * @param ie
+ *   gtpv2c_ie information element
+ * @return
+ *   ipv4 address of user equipment
+ */
+struct in_addr
+get_ipv4_paa_ipv4(gtpv2c_ie *ie);
 
 /**
  * Creates & populates 'Access Point Name' restriction information element

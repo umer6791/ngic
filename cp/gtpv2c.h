@@ -28,8 +28,11 @@
  *
  */
 
+#include <pcap.h>
+
 #include "gtpv2c_ie.h"
 #include "ue.h"
+#include "cp.h"
 
 #include <stddef.h>
 #include <arpa/inet.h>
@@ -163,6 +166,10 @@ typedef struct gtpv2c_header_t {
 
 #pragma pack()
 
+/* These IE functions/macros are 'safe' in that the ie's returned, if any, fall
+ * within the memory range limit specified by either the gtpv2c header or
+ * grouped ie length values */
+
 /**
  * Macro to provide address of first Information Element within message buffer
  * containing GTP header. Address may be invalid and must be validated to ensure
@@ -225,10 +232,6 @@ typedef struct gtpv2c_header_t {
 #define GTPV2C_IE_LIMIT(gtpv2c_h)\
 	IE_LIMIT(&gtpv2c_h->teid_u, ntohs(gtpv2c_h->gtpc.length))
 
-/* These IE functions/macros are 'safe' in that the ie's returned, if any, fall
- * within the memory range limit specified by either the gtpv2c header or
- * grouped ie length values */
-
 /**
  * Helper function to get the location, according to the buffer and gtp header
  * located at '*gtpv2c_h', of the first information element according to
@@ -242,6 +245,23 @@ typedef struct gtpv2c_header_t {
  */
 gtpv2c_ie *
 get_first_ie(gtpv2c_header * gtpv2c_h);
+
+/**
+ * Helper macro to loop through GTPv2C Information Elements (IE)
+ * @param gtpv2c_h
+ *   Pointer to address message buffer containing a GTP Header
+ * @param gtpv2c_ie_ptr
+ *   Pointer to starting IE to loop from
+ * @param gtpv2c_limit_ie_ptr
+ *   Pointer to ending IE of the loop
+ * @return
+ *
+ */
+#define FOR_EACH_GTPV2C_IE(gtpv2c_h, gtpv2c_ie_ptr, gtpv2c_limit_ie_ptr) \
+	for (gtpv2c_ie_ptr = get_first_ie(gtpv2c_h),                 \
+		gtpv2c_limit_ie_ptr = GTPV2C_IE_LIMIT(gtpv2c_h);         \
+		gtpv2c_ie_ptr;                                           \
+		gtpv2c_ie_ptr = get_next_ie(gtpv2c_ie_ptr, gtpv2c_limit_ie_ptr))
 
 /**
  * Calculates address of Information Element which follows gtpv2c_ie_ptr
@@ -261,21 +281,53 @@ get_first_ie(gtpv2c_header * gtpv2c_h);
 gtpv2c_ie *
 get_next_ie(gtpv2c_ie *gtpv2c_ie_ptr, gtpv2c_ie *limit);
 
-#define FOR_EACH_GTPV2C_IE(gtpv2c_h, gtpv2c_ie_ptr, gtpv2c_limit_ie_ptr) \
-	for (gtpv2c_ie_ptr = get_first_ie(gtpv2c_h),                     \
-		gtpv2c_limit_ie_ptr = GTPV2C_IE_LIMIT(gtpv2c_h);         \
-		gtpv2c_ie_ptr;                                           \
-		gtpv2c_ie_ptr = get_next_ie(gtpv2c_ie_ptr, gtpv2c_limit_ie_ptr))
-
+/**
+ * Helper macro to loop through GTPv2C Grouped Information Elements (IE)
+ * @param parent_ie_ptr
+ *   Pointer to address message buffer containing a parent GTPv2C IE
+ * @param child_ie_ptr
+ *   Pointer to starting child IE to loop from
+ * @param gtpv2c_limit_ie_ptr
+ *   Pointer to ending IE of the loop
+ * @return
+ *
+ */
 #define FOR_EACH_GROUPED_IE(parent_ie_ptr, child_ie_ptr, gtpv2c_limit_ie_ptr) \
 	for (gtpv2c_limit_ie_ptr = GROUPED_IE_LIMIT(parent_ie_ptr),           \
 	       child_ie_ptr = parent_ie_ptr + 1;                              \
 	       child_ie_ptr;                                                  \
 	       child_ie_ptr = get_next_ie(child_ie_ptr, gtpv2c_limit_ie_ptr))
 
-extern struct in_addr s11_sgw_ip;
 extern struct in_addr s11_mme_ip;
+extern struct sockaddr_in s11_mme_sockaddr;
+
+extern struct in_addr s11_sgw_ip;
+extern in_port_t s11_port;
+extern struct sockaddr_in s11_sgw_sockaddr;
+extern uint8_t s11_rx_buf[MAX_GTPV2C_UDP_LEN];
+extern uint8_t s11_tx_buf[MAX_GTPV2C_UDP_LEN];
+
+extern struct in_addr s5s8_sgwc_ip;
+extern in_port_t s5s8_sgwc_port;
+extern struct sockaddr_in s5s8_sgwc_sockaddr;
+
+extern struct in_addr s5s8_pgwc_ip;
+extern in_port_t s5s8_pgwc_port;
+extern struct sockaddr_in s5s8_pgwc_sockaddr;
+extern uint8_t s5s8_rx_buf[MAX_GTPV2C_UDP_LEN];
+extern uint8_t s5s8_tx_buf[MAX_GTPV2C_UDP_LEN];
+
 extern struct in_addr s1u_sgw_ip;
+extern struct in_addr s5s8_sgwu_ip;
+extern struct in_addr s5s8_pgwu_ip;
+
+/**
+ * @brief
+ * Writes packet at @tx_buf of length @payload_length to pcap file specified
+ * in @pcap_dumper (global)
+ */
+void
+dump_pcap(uint16_t payload_length, uint8_t *tx_buf);
 
 /**
  * Helper function to set the gtp header for a gtpv2c message.
@@ -362,6 +414,45 @@ process_create_bearer_response(gtpv2c_header *gtpv2c_rx);
  *
  * @param gtpv2c_rx
  *   gtpv2c message buffer containing the create session request message
+ * @param gtpv2c_s11_tx
+ *   gtpc2c message transmission buffer to contain s11 response message
+ * @param gtpv2c_s5s8_tx
+ *   gtpc2c message transmission buffer to contain s5s8 response message
+ * @return
+ *   \- 0 if successful
+ *   \- > 0 if error occurs during packet filter parsing corresponds to 3gpp
+ *   specified cause error value
+ *   \- < 0 for all other errors
+ */
+int
+process_create_session_request(gtpv2c_header *gtpv2c_rx,
+		gtpv2c_header *gtpv2c_s11_tx, gtpv2c_header *gtpv2c_s5s8_tx);
+
+/**
+ * from parameters, populates gtpv2c message 'create session response' and
+ * populates required information elements as defined by
+ * clause 7.2.2 3gpp 29.274
+ * @param gtpv2c_tx
+ *   transmission buffer to contain 'create session response' message
+ * @param sequence
+ *   sequence number as described by clause 7.6 3gpp 29.274
+ * @param context
+ *   UE Context data structure pertaining to the session to be created
+ * @param pdn
+ *   PDN Connection data structure pertaining to the session to be created
+ * @param bearer
+ *   Default EPS Bearer corresponding to the PDN Connection to be created
+ */
+void
+set_create_session_response(gtpv2c_header *gtpv2c_tx,
+		uint32_t sequence, ue_context *context, pdn_connection *pdn,
+		eps_bearer *bearer);
+
+/**
+ * Handles the processing of pgwc create session request messages
+ *
+ * @param gtpv2c_rx
+ *   gtpv2c message buffer containing the create session request message
  * @param gtpv2c_tx
  *   gtpc2c message transmission buffer to contain response message
  * @return
@@ -371,7 +462,51 @@ process_create_bearer_response(gtpv2c_header *gtpv2c_rx);
  *   \- < 0 for all other errors
  */
 int
-process_create_session_request(gtpv2c_header *gtpv2c_rx,
+process_pgwc_s5s8_create_session_request(gtpv2c_header *gtpv2c_rx,
+		gtpv2c_header *gtpv2c_tx);
+
+/**
+ * Handles the generation of sgwc s5s8 create session request messages
+ *
+ * @param gtpv2c_s11_rx
+ *   gtpc2c message reception  buffer containing s11 request message
+ * @param gtpv2c_s5s8_tx
+ *   gtpc2c message transmission buffer to contain s5s8 response message
+ * @param sequence
+ *   sequence number as described by clause 7.6 3gpp 29.274
+ * @param context
+ *   UE Context data structure pertaining to the session to be created
+ * @param pdn
+ *   PDN Connection data structure pertaining to the session to be created
+ * @param bearer
+ *   Default EPS Bearer corresponding to the PDN Connection to be created
+  * @return
+ *   \- 0 if successful
+ *   \- > 0 if error occurs during packet filter parsing corresponds to 3gpp
+ *   specified cause error value
+ *   \- < 0 for all other errors
+ */
+int
+gen_sgwc_s5s8_create_session_request(gtpv2c_header *gtpv2c_s11_rx,
+		gtpv2c_header *gtpv2c_s5s8_tx,
+		uint32_t sequence, pdn_connection *pdn,
+		eps_bearer *bearer);
+
+/**
+ * Handles processing of sgwc s5s8 create session response messages
+ *
+ * @param gtpv2c_rx
+ *   gtpc2c message reception  buffer containing the response message
+ * @param gtpv2c_tx
+ *   gtpc2c message transmission buffer to contain response message
+ * @return
+ *   \- 0 if successful
+ *   \- > 0 if error occurs during packet filter parsing corresponds to 3gpp
+ *   specified cause error value
+ *   \- < 0 for all other errors
+ */
+int
+process_sgwc_s5s8_create_session_response(gtpv2c_header *gtpv2c_rx,
 		gtpv2c_header *gtpv2c_tx);
 
 /**
@@ -395,6 +530,25 @@ process_delete_bearer_response(gtpv2c_header *gtpv2c_rx);
  *
  * @param gtpv2c_rx
  *   gtpv2c message buffer containing delete session request message
+ * @param gtpv2c_s11_tx
+ *   gtpc2c message transmission buffer to contain s11 response message
+ * @param gtpv2c_s5s8_tx
+ *   gtpc2c message transmission buffer to contain s5s8 response message
+ * @return
+ *   \- 0 if successful
+ *   \- > 0 if error occurs during packet filter parsing corresponds to 3gpp
+ *   specified cause error value
+ *   \- < 0 for all other errors
+ */
+int
+process_delete_session_request(gtpv2c_header *gtpv2c_rx,
+		gtpv2c_header *gtpv2c_s11_tx, gtpv2c_header *gtpv2c_s5s8_tx);
+
+/**
+ * Handles the processing of pgwc delete session request messages
+ *
+ * @param gtpv2c_rx
+ *   gtpv2c message buffer containing delete session request message
  * @param gtpv2c_tx
  *   gtpv2c message buffer to contain delete session response message
  * @return
@@ -404,8 +558,49 @@ process_delete_bearer_response(gtpv2c_header *gtpv2c_rx);
  *   \- < 0 for all other errors
  */
 int
-process_delete_session_request(gtpv2c_header *gtpv2c_rx,
-		gtpv2c_header *gtpv2c_tx);
+process_pgwc_s5s8_delete_session_request(gtpv2c_header *gtpv2c_rx,
+	gtpv2c_header *gtpv2c_tx);
+
+/**
+ * Handles the generation of sgwc s5s8 delete session request messages
+ *
+ * @param gtpv2c_rx
+ *   gtpv2c message buffer containing delete session request message
+ * @param gtpv2c_tx
+ *   gtpv2c message buffer to contain delete session response message
+ * @param bearer
+ *   Default EPS Bearer corresponding to the PDN Connection to be deleted
+ * @param pgw_gtpc_del_teid
+ *   Default pgw_gtpc_del_teid to be deleted on PGW
+ * @param sequence
+ *   sequence number as described by clause 7.6 3gpp 29.274
+ * @return
+ *   \- 0 if successful
+ *   \- > 0 if error occurs during packet filter parsing corresponds to 3gpp
+ *   specified cause error value
+ *   \- < 0 for all other errors
+ */
+int
+gen_sgwc_s5s8_delete_session_request(gtpv2c_header *gtpv2c_rx,
+		gtpv2c_header *gtpv2c_tx, uint32_t pgw_gtpc_del_teid,
+		uint32_t sequence, uint8_t del_ebi);
+
+/**
+ * Handles processing of sgwc s5s8 delete session response messages
+ *
+ * @param gtpv2c_rx
+ *   gtpc2c message reception  buffer containing the response message
+ * @param gtpv2c_tx
+ *   gtpc2c message transmission buffer to contain response message
+ * @return
+ *   \- 0 if successful
+ *   \- > 0 if error occurs during packet filter parsing corresponds to 3gpp
+ *   specified cause error value
+ *   \- < 0 for all other errors
+ */
+int
+process_sgwc_s5s8_delete_session_response(gtpv2c_header *gtpv2c_s5s8_rx,
+			gtpv2c_header *gtpv2c_s11_tx);
 
 /**
  * Handles the processing and reply of gtp echo requests received by the control

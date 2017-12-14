@@ -25,6 +25,14 @@
 
 #define GTPU_VERSION		0x01
 #define GTP_PROTOCOL_TYPE_GTP	0x01
+#ifdef GTPU_HDR_SEQNB
+#define GTPU_SEQPRESENT	0x01
+/* GTPU_STATIC_SEQNB 0x00001122::On Wire 22 11 00 00
+ * Last two SEQNB bytes should be 00 00
+ * */
+#define GTPU_STATIC_SEQNB 0x00000000
+#endif	/* GTPU_HDR_SEQNB */
+
 #define GTP_GPDU		0xff
 
 /**
@@ -42,6 +50,9 @@ struct gtpu_hdr {
 	uint8_t msgtype;	/**< message type */
 	uint16_t msglen;	/**< message length */
 	uint32_t teid;		/**< tunnel endpoint id */
+#ifdef GTPU_HDR_SEQNB
+	uint32_t seqnb;		/**< sequence number */
+#endif	/* GTPU_HDR_SEQNB */
 };
 #pragma pack()
 

@@ -547,15 +547,8 @@ copy_dp_adc_rules(struct dp_adc_rules *dst,
 		struct adc_rules *src)
 {
 	dst->rule_id = src->rule_id;
-	dst->rating_group = src->rating_group;
-	dst->gate_status = src->gate_status;
-	dst->report_level = src->report_level;
-	dst->mute_notify = src->mute_notify;
-	dst->rule_activation_time = src->rule_activation_time;
-	dst->rule_deactivation_time = src->rule_deactivation_time;
-	dst->redirect_info = src->redirect_info;
-	dst->mtr_profile_index = src->mtr_profile_index;
 }
+
 /**
  * @brief Function to add adc entry with key and
  * update adc address and rating group.
@@ -586,11 +579,6 @@ add_adc_entry_key_with_idx(struct ue_session_info *old,
 	/* get adc rule info address*/
 	adc_rule_info_get(&adc_id, 1, &pkts_mask, (void **)&adc_info);
 	old->adc_rule_id[idx] = adc_id;
-
-	/* update rating group idx*/
-	ret = add_rg_idx(adc_info->rating_group, old->rg_idx_map);
-	if (ret)
-			rte_panic("Failed to add rating group to index map");
 
 	/* alloc memory for per ADC per UE info structure*/
 	padc_ue = rte_zmalloc("adc ue info", sizeof(struct dp_adc_ue_info),
@@ -701,17 +689,13 @@ void print_adc_hash(void)
 	void *next_data;
 	uint32_t iter = 0;
 
-	printf("\nADC Hash table\n");
 
 	while (rte_hash_iterate(rte_adc_hash, &next_key, &next_data, &iter) >= 0) {
 
-		struct msg_adc *msg_adc = next_data;
 		struct in_addr tmp_ip_key;
 
 		memcpy(&tmp_ip_key, next_key, sizeof(struct in_addr));
 
-		printf("%-15s ", inet_ntoa(tmp_ip_key));
-		printf("%d ", msg_adc->rule_id);
 	}
 	puts("<\\ >\n");
 }
@@ -868,6 +852,7 @@ dp_session_create(struct dp_id dp_id,
 	struct ue_session_info *ue_data = NULL;
 	uint32_t ue_sess_id = UE_SESS_ID(entry->sess_id);
 	uint32_t bear_id = UE_BEAR_ID(entry->sess_id);
+
 	RTE_SET_USED(dp_id);
 	RTE_LOG(DEBUG, DP, "BEAR_SESS ADD:sess_id:%u, bear_id:%u, ue_addr:"
 			IPV4_ADDR "\n",

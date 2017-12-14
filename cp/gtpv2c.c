@@ -32,10 +32,28 @@
 
 #define RTE_LOGTYPE_CP RTE_LOGTYPE_USER1
 
-struct in_addr s11_sgw_ip;
 struct in_addr s11_mme_ip;
-struct in_addr s1u_sgw_ip;
+struct sockaddr_in s11_mme_sockaddr;
 
+struct in_addr s11_sgw_ip;
+in_port_t s11_port;
+struct sockaddr_in s11_sgw_sockaddr;
+uint8_t s11_rx_buf[MAX_GTPV2C_UDP_LEN];
+uint8_t s11_tx_buf[MAX_GTPV2C_UDP_LEN];
+
+struct in_addr s5s8_sgwc_ip;
+in_port_t s5s8_sgwc_port;
+struct sockaddr_in s5s8_sgwc_sockaddr;
+
+struct in_addr s5s8_pgwc_ip;
+in_port_t s5s8_pgwc_port;
+struct sockaddr_in s5s8_pgwc_sockaddr;
+uint8_t s5s8_rx_buf[MAX_GTPV2C_UDP_LEN];
+uint8_t s5s8_tx_buf[MAX_GTPV2C_UDP_LEN];
+
+struct in_addr s1u_sgw_ip;
+struct in_addr s5s8_sgwu_ip;
+struct in_addr s5s8_pgwu_ip;
 
 gtpv2c_ie *
 get_first_ie(gtpv2c_header *gtpv2c_h)

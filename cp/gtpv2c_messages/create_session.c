@@ -16,9 +16,13 @@
 
 #include <errno.h>
 
+#include <rte_debug.h>
+
 #include "packet_filters.h"
 #include "gtpv2c_set_ie.h"
 #include "../cp_dp_api/vepc_cp_dp_api.h"
+
+#define RTE_LOGTYPE_CP RTE_LOGTYPE_USER4
 
 /** Table 7.2.1-1: Information Elements in a Create Session Request -
  *  incomplete list */
@@ -84,7 +88,7 @@ parse_create_session_request(gtpv2c_header *gtpv2c_rx,
 						current_group_ie->instance ==
 							IE_INSTANCE_ZERO) {
 					csr->bearer_qos_ie = current_group_ie;
-				} else if (current_group_ie->type == IE_EBI &&
+				} else if (current_group_ie->type == IE_BEARER_TFT &&
 						current_group_ie->instance ==
 							IE_INSTANCE_ZERO) {
 					csr->bearer_tft_ie = current_group_ie;
@@ -133,7 +137,6 @@ parse_create_session_request(gtpv2c_header *gtpv2c_rx,
 		}
 	}
 
-
 	if (csr->indication_ie &&
 			IE_TYPE_PTR_FROM_GTPV2C_IE(indication_ie,
 					csr->indication_ie)->uimsi) {
@@ -165,22 +168,7 @@ parse_create_session_request(gtpv2c_header *gtpv2c_rx,
 	return 0;
 }
 
-/**
- * from parameters, populates gtpv2c message 'create session response' and
- * populates required information elements as defined by
- * clause 7.2.2 3gpp 29.274
- * @param gtpv2c_tx
- *   transmission buffer to contain 'create session response' message
- * @param sequence
- *   sequence number as described by clause 7.6 3gpp 29.274
- * @param context
- *   UE Context data structure pertaining to the session to be created
- * @param pdn
- *   PDN Connection data structure pertaining to the session to be created
- * @param bearer
- *   Default EPS Bearer corresponding to the PDN Connection to be created
- */
-static void
+void
 set_create_session_response(gtpv2c_header *gtpv2c_tx,
 		uint32_t sequence, ue_context *context, pdn_connection *pdn,
 		eps_bearer *bearer)
@@ -233,25 +221,28 @@ set_create_session_response(gtpv2c_header *gtpv2c_tx,
 	}
 }
 
-
 int
 process_create_session_request(gtpv2c_header *gtpv2c_rx,
-		gtpv2c_header *gtpv2c_tx)
+		gtpv2c_header *gtpv2c_s11_tx, gtpv2c_header *gtpv2c_s5s8_tx)
 {
 	struct parse_create_session_request_t create_session_request = { 0 };
 	ue_context *context = NULL;
 	pdn_connection *pdn = NULL;
 	eps_bearer *bearer = NULL;
 	struct in_addr ue_ip;
+	int ret;
+	static uint32_t process_sgwc_s5s8_cs_req_cnt;
+	static uint32_t process_spgwc_s11_cs_res_cnt;
 
-	int ret = parse_create_session_request(gtpv2c_rx,
+	ret =
+		parse_create_session_request(gtpv2c_rx,
 			&create_session_request);
 	if (ret)
-		return ret;
+		 return ret;
 
 	apn *apn_requested = get_apn(
-	    APN_PTR_FROM_APN_IE(create_session_request.apn_ie),
-	    ntohs(create_session_request.apn_ie->length));
+			APN_PTR_FROM_APN_IE(create_session_request.apn_ie),
+			ntohs(create_session_request.apn_ie->length));
 
 	if (!apn_requested)
 		return GTPV2C_CAUSE_MISSING_UNKNOWN_APN;
@@ -263,40 +254,43 @@ process_create_session_request(gtpv2c_header *gtpv2c_rx,
 	if (ret)
 		return GTPV2C_CAUSE_ALL_DYNAMIC_ADDRESSES_OCCUPIED;
 
-	ret = create_ue_context(create_session_request.imsi_ie,
-	    *create_session_request.bearer_context_to_be_created_ebi, &context);
+	/* set s11_sgw_gtpc_teid= key->ue_context_by_fteid_hash */
+	ret = create_ue_context(
+			create_session_request.imsi_ie,
+			*create_session_request.bearer_context_to_be_created_ebi,
+			&context);
 	if (ret)
 		return ret;
 
 	if (create_session_request.mei_ie) {
 		memcpy(&context->mei,
-		    IE_TYPE_PTR_FROM_GTPV2C_IE(uint64_t,
-				    create_session_request.mei_ie),
-		    ntohs(create_session_request.mei_ie->length));
+				IE_TYPE_PTR_FROM_GTPV2C_IE(uint64_t,
+					create_session_request.mei_ie),
+				ntohs(create_session_request.mei_ie->length));
 	}
 	if (create_session_request.msisdn_ie) {
 		memcpy(&context->msisdn,
-		    IE_TYPE_PTR_FROM_GTPV2C_IE(uint64_t,
-				    create_session_request.msisdn_ie),
-		    ntohs(create_session_request.msisdn_ie->length));
+				IE_TYPE_PTR_FROM_GTPV2C_IE(uint64_t,
+					create_session_request.msisdn_ie),
+				ntohs(create_session_request.msisdn_ie->length));
 	}
 
 	context->s11_sgw_gtpc_ipv4 = s11_sgw_ip;
 	context->s11_mme_gtpc_teid =
-	    create_session_request.sender_fteid_ie_for_control_plane->
-	    fteid_ie_hdr.teid_or_gre;
+		create_session_request.sender_fteid_ie_for_control_plane->
+		fteid_ie_hdr.teid_or_gre;
 	context->s11_mme_gtpc_ipv4 = s11_mme_ip;
 
 	pdn = context->pdns[ebi_index];
 	{
 		pdn->apn_in_use = apn_requested;
 		pdn->apn_ambr = *IE_TYPE_PTR_FROM_GTPV2C_IE(ambr_ie,
-		    create_session_request.apn_ambr_ie);
+				create_session_request.apn_ambr_ie);
 		pdn->apn_restriction = *IE_TYPE_PTR_FROM_GTPV2C_IE(uint8_t,
-		    create_session_request.apn_restriction_ie);
+				create_session_request.apn_restriction_ie);
 		pdn->ipv4 = ue_ip;
 		pdn->pdn_type = *IE_TYPE_PTR_FROM_GTPV2C_IE(pdn_type_ie,
-		    create_session_request.pdn_type_ie);
+				create_session_request.pdn_type_ie);
 		if (create_session_request.charging_characteristics_ie) {
 			pdn->charging_characteristics =
 				*IE_TYPE_PTR_FROM_GTPV2C_IE(
@@ -305,36 +299,73 @@ process_create_session_request(gtpv2c_header *gtpv2c_rx,
 						charging_characteristics_ie);
 		}
 
+		pdn->s5s8_sgw_gtpc_ipv4 = s5s8_sgwc_ip;
+		/* Note: s5s8_sgw_gtpc_teid =
+		 * s11_sgw_gtpc_teid
+		 */
+		pdn->s5s8_sgw_gtpc_teid = context->s11_sgw_gtpc_teid;
 		pdn->s5s8_pgw_gtpc_ipv4 =
-				create_session_request.
-				pgw_s5s8_gtpc_fteid->ip_u.ipv4;
-		pdn->s5s8_pgw_gtpc_teid = context->s11_sgw_gtpc_teid;
+			create_session_request.
+			pgw_s5s8_gtpc_fteid->ip_u.ipv4;
+		/* Note: s5s8_pgw_gtpc_teid updated by
+		 * process_sgwc_s5s8_create_session_response (...)
+		 */
+		pdn->s5s8_pgw_gtpc_teid =
+			create_session_request.
+			pgw_s5s8_gtpc_fteid->fteid_ie_hdr.teid_or_gre;
+
 	}
 	bearer = context->eps_bearers[ebi_index];
 	{
 		/* TODO: Implement TFTs on default bearers
-		if (create_session_request.bearer_tft_ie) {
-		}
-		*/
+		   if (create_session_request.bearer_tft_ie) {
+		   }
+		   */
 		bearer->qos = *IE_TYPE_PTR_FROM_GTPV2C_IE(bearer_qos_ie,
-		    create_session_request.bearer_qos_ie);
+				create_session_request.bearer_qos_ie);
 
 		bearer->s1u_sgw_gtpu_ipv4 = s1u_sgw_ip;
 		set_s1u_sgw_gtpu_teid(bearer, context);
+		bearer->s5s8_sgw_gtpu_ipv4 = s5s8_sgwu_ip;
+		/* Note: s5s8_sgw_gtpu_teid based s11_sgw_gtpc_teid
+		 * Computation same as s1u_sgw_gtpu_teid
+		 */
+		set_s5s8_sgw_gtpu_teid(bearer, context);
+		bearer->pdn = pdn;
 
 		if (create_session_request.s11u_mme_fteid) {
 			bearer->s11u_mme_gtpu_ipv4 =
-			    IE_TYPE_PTR_FROM_GTPV2C_IE(fteid_ie,
-			    create_session_request.s11u_mme_fteid)->ip_u.ipv4;
+				IE_TYPE_PTR_FROM_GTPV2C_IE(fteid_ie,
+						create_session_request.s11u_mme_fteid)->ip_u.ipv4;
 			bearer->s11u_mme_gtpu_teid =
 				IE_TYPE_PTR_FROM_GTPV2C_IE(fteid_ie,
-			    create_session_request.s11u_mme_fteid)->
-			    fteid_ie_hdr.teid_or_gre;
+						create_session_request.s11u_mme_fteid)->
+				fteid_ie_hdr.teid_or_gre;
 		}
 	}
 
-	set_create_session_response(gtpv2c_tx, gtpv2c_rx->teid_u.has_teid.seq,
+	if (spgw_cfg == SGWC) {
+		ret =
+			gen_sgwc_s5s8_create_session_request(gtpv2c_rx,
+				gtpv2c_s5s8_tx, gtpv2c_rx->teid_u.has_teid.seq,
+				pdn, bearer);
+		RTE_LOG(DEBUG, CP, "NGIC- create_session.c::"
+				"\n\tprocess_create_session_request::case= %d;"
+				"\n\tprocess_sgwc_s5s8_cs_req_cnt= %u;"
+				"\n\tgen_create_s5s8_session_request= %d\n",
+				spgw_cfg, process_sgwc_s5s8_cs_req_cnt++,
+				ret);
+		return ret;
+	}
+
+	set_create_session_response(
+			gtpv2c_s11_tx, gtpv2c_rx->teid_u.has_teid.seq,
 			context, pdn, bearer);
+	RTE_LOG(DEBUG, CP, "NGIC- create_session.c::"
+			"\n\tprocess_create_session_request::case= %d;"
+			"\n\tprocess_spgwc_s11_cs_res_cnt= %u;"
+			"\n\tset_create_session_response::done...\n",
+			spgw_cfg, process_spgwc_s11_cs_res_cnt++);
 
 	/* using the s1u_sgw_gtpu_teid as unique identifier to the session */
 	struct session_info session;

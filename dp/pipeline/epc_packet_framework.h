@@ -46,12 +46,14 @@ extern uint64_t num_dns_processed;
  * S1U port id.
  */
 #define S1U_PORT_ID   0
+#define WEST_PORT_ID   0
 
 /**
  * SGI port id.
  */
 
 #define SGI_PORT_ID   1
+#define EAST_PORT_ID   1
 
 #define DL_RINGS_THRESHOLD 32
 
@@ -427,7 +429,7 @@ void epc_load_balance(void *args);
  * @param sgi_port_id
  *	Port id for sgi interface assigned by rte
  */
-void epc_init_packet_framework(uint8_t s1u_port_id, uint8_t sgi_port_id);
+void epc_init_packet_framework(uint8_t west_port_id, uint8_t east_port_id);
 
 /**
  * Registers a worker function that is executed from the pipeline
