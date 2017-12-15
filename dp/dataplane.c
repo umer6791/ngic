@@ -942,7 +942,7 @@ void dp_table_init(void)
 		case SPGWU:
 			strncpy(east_file, SPGW_SGI_PCAP_FILE,
 					sizeof(SPGW_SGI_PCAP_FILE));
-			strcpy(west_file, SPGW_S1U_PCAP_FILE,
+			strncpy(west_file, SPGW_S1U_PCAP_FILE,
 					sizeof(SPGW_S1U_PCAP_FILE));
 			break;
 

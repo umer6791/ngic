@@ -28,8 +28,6 @@
  *
  */
 
-#include <pcap.h>
-
 #include "gtpv2c_ie.h"
 #include "ue.h"
 #include "cp.h"

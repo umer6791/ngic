@@ -169,7 +169,7 @@ struct zmqbuf {
 			uint8_t redirect_info;
 			uint8_t session_cont;
 			uint64_t drop_pkt_count;
-			uint32_t adc_idx;
+			int32_t adc_idx;
 		} pcc_rules_m;
 		struct mtr_entry_t {
 			uint16_t meter_profile_index;
@@ -179,7 +179,6 @@ struct zmqbuf {
 			uint16_t metering_method;
 		} mtr_entry_m;
 		struct sdf_entry_t {
-			uint32_t pcc_rule_id;
 			uint8_t rule_type;
 		} sdf_entry_m;
 

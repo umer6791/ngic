@@ -17,6 +17,7 @@
 #ifndef _CP_H_
 #define _CP_H_
 
+#include <pcap.h>
 /**
  * @file
  *

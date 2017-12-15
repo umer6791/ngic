@@ -25,7 +25,6 @@
 #include <unistd.h>
 #include <time.h>
 #include <ctype.h>
-#include <pcap.h>
 #include <signal.h>
 
 #include <rte_memory.h>

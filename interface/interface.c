@@ -726,6 +726,7 @@ zmq_mbuf_process(struct zmqbuf *zmqmsgbuf_rx, int zmqmsglen)
 		 * ref.Doc : Message_sdn.docx
 		 * section : Table No.14 SDF Table
 		 */
+		static uint8_t rule_id_t = 1;
 		struct sdf_entry_t *sdf_t =
 			&(zmqmsgbuf_rx->msg_union.sdf_entry_m);
 		struct pkt_filter *sdf = &(rbuf->msg_union.pkt_filter_entry);
@@ -733,7 +734,7 @@ zmq_mbuf_process(struct zmqbuf *zmqmsgbuf_rx, int zmqmsglen)
 		rbuf->mtype = MSG_SDF_ADD;
 		rbuf->dp_id.id = DPN_ID;
 
-		sdf->pcc_rule_id = rte_bswap32(sdf_t->pcc_rule_id);
+		sdf->pcc_rule_id = rule_id_t++;
 		sdf->sel_rule_type = sdf_t->rule_type;
 
 		switch (sdf->sel_rule_type) {
