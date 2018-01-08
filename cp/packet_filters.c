@@ -595,6 +595,7 @@ init_pcc_rules(void)
 			uint16_t sdf_cnt = 0;
 			/*SDF entries format : "1, 2: 10, 30"*/
 			for(int x=0; x < MAX_SDF_IDX_COUNT; ++x) {
+				errno = 0;
 				int sdf_idx = strtol(entry, &next, 10);
 				if (errno != 0) {
 					perror("strtol");

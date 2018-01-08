@@ -19,7 +19,7 @@ APP_PATH="./build"
 APP="ngic_controlplane"
 LOG_LEVEL=1
 
-ARGS="-c 0x00e -n 4 --socket-mem $MEMORY,0 --file-prefix cp --no-pci -- \
+ARGS="--socket-mem $MEMORY,0 --file-prefix cp --no-pci -- \
   -d $SPGW_CFG            \
   -m $S11_MME_IP          \
   -s $S11_SGW_IP          \

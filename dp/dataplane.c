@@ -411,14 +411,22 @@ get_pcc_info(void **sess_info, uint32_t n, void **pcc_info)
 }
 
 void
-pcc_gating(struct pcc_id_precedence *pcc_info,
+pcc_gating(struct pcc_id_precedence *sdf_info, struct pcc_id_precedence *adc_info,
 	uint32_t n, uint64_t *pkts_mask)
 {
 	uint32_t i;
 
 	for (i = 0; i < n; i++) {
-		if (pcc_info[i].gate_status == CLOSE) {
-			RESET_BIT(*pkts_mask, i);
+		/* Lowest value, highest precedance. ref: 29.212 */
+		if (sdf_info[i].precedence < adc_info[i].precedence) {
+			if (sdf_info[i].gate_status == CLOSE) {
+				RESET_BIT(*pkts_mask, i);
+			}
+
+		} else {
+			if (adc_info[i].gate_status == CLOSE) {
+				RESET_BIT(*pkts_mask, i);
+			}
 		}
 	}
 }

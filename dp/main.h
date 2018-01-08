@@ -688,7 +688,7 @@ dl_sess_info_get(struct rte_mbuf **pkts, uint32_t n, uint32_t *res,
  * Void
  */
 void
-pcc_gating(struct pcc_id_precedence *pcc_info,
+pcc_gating(struct pcc_id_precedence *sdf_info, struct pcc_id_precedence *adc_info,
 		uint32_t n, uint64_t *pkts_mask);
 /**
  * Get ADC filter entry.

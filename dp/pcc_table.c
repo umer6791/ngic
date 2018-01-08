@@ -338,7 +338,7 @@ filter_pcc_entry_add(enum filter_pcc_type type, uint32_t pcc_id,
 			if (data == NULL)
 				rte_panic("Failed to allocate memory for filter_pcc_data");
 
-			data->entries = pinfo->entries;
+			data->entries = pinfo->entries + 1;
 			data->pcc_info = pcc;
 
 			ret = rte_hash_del_key(hash, &ruleid);
@@ -409,10 +409,10 @@ filter_pcc_entry_lookup(enum filter_pcc_type type, uint32_t* rule_ids,
 			 *        gate-status 1 (pass traffic)
 			 */
 			pcc_ids[i].pcc_id = 0;
-			pcc_ids[i].precedence = 0;
+			pcc_ids[i].precedence = 255;
 			pcc_ids[i].gate_status = 1;
 		} else {
-			pcc_ids[i] = pinfo->pcc_info[0];
+			pcc_ids[i] = pinfo->pcc_info[pinfo->entries - 1];
 		}
 	}
 	return 0;

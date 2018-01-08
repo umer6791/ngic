@@ -128,14 +128,14 @@ filter_ul_traffic(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 		int wk_index, uint64_t *pkts_mask)
 {
 	uint32_t *sdf_rule_id;
-	struct pcc_id_precedence pcc_info[MAX_BURST_SZ];
+	struct pcc_id_precedence sdf_info[MAX_BURST_SZ];
+	struct pcc_id_precedence adc_info[MAX_BURST_SZ];
 
 
 	sdf_rule_id = sdf_lookup(pkts, n);
 
-	filter_pcc_entry_lookup(FILTER_SDF, sdf_rule_id, n, &pcc_info[0]);
+	filter_pcc_entry_lookup(FILTER_SDF, sdf_rule_id, n, &sdf_info[0]);
 
-	pcc_gating(&pcc_info[0], n, pkts_mask);
 
 	uint32_t *adc_rule_a;
 	uint32_t adc_rule_b[MAX_BURST_SZ];
@@ -150,11 +150,9 @@ filter_ul_traffic(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	 * overwrite the result from filter table.	*/
 	update_adc_rid_from_domain_lookup(adc_rule_a, &adc_rule_b[0], n);
 
-	memset(pcc_info, 0, sizeof(struct pcc_id_precedence) * MAX_BURST_SZ);
+	filter_pcc_entry_lookup(FILTER_ADC, adc_rule_a, n, &adc_info[0]);
 
-	filter_pcc_entry_lookup(FILTER_ADC, adc_rule_a, n, &pcc_info[0]);
-
-	pcc_gating(&pcc_info[0], n, pkts_mask);
+	pcc_gating(&sdf_info[0], &adc_info[0], n, pkts_mask);
 
 	return;
 }
@@ -243,16 +241,15 @@ filter_dl_traffic(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 {
 	uint32_t *sdf_rule_id;
 	uint64_t pkts_mask;
-	struct pcc_id_precedence pcc_info[MAX_BURST_SZ];
+	struct pcc_id_precedence sdf_info_dl[MAX_BURST_SZ];
+	struct pcc_id_precedence adc_info_dl[MAX_BURST_SZ];
 	uint32_t *pcc_id;
 
 	pkts_mask = (~0LLU) >> (64 - n);
 
 	sdf_rule_id = sdf_lookup(pkts, n);
 
-	filter_pcc_entry_lookup(FILTER_SDF, sdf_rule_id, n, &pcc_info[0]);
-
-	pcc_gating(&pcc_info[0], n, &pkts_mask);
+	filter_pcc_entry_lookup(FILTER_SDF, sdf_rule_id, n, &sdf_info_dl[0]);
 
 	uint32_t *adc_rule_a;
 	uint32_t adc_rule_b[MAX_BURST_SZ];
@@ -270,11 +267,9 @@ filter_dl_traffic(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	 * overwrite the result from filter table.	*/
 	update_adc_rid_from_domain_lookup(adc_rule_a, &adc_rule_b[0], n);
 
-	memset(pcc_info, 0, sizeof(struct pcc_id_precedence) * MAX_BURST_SZ);
+	filter_pcc_entry_lookup(FILTER_ADC, adc_rule_a, n, &adc_info_dl[0]);
 
-	filter_pcc_entry_lookup(FILTER_ADC, adc_rule_a, n, &pcc_info[0]);
-
-	pcc_gating(&pcc_info[0], n, &pkts_mask);
+	pcc_gating(&sdf_info_dl[0], &adc_info_dl[0], n, &pkts_mask);
 
 	dl_sess_info_get(pkts, n, pcc_id, &pkts_mask, &sdf_info[0], &si[0]);
 #ifdef HYPERSCAN_DPI
