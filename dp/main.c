@@ -31,6 +31,11 @@
 #include "session_cdr.h"
 #include "master_cdr.h"
 
+/* Temp. work around for debug log level. Issue in DPDK-16.11*/
+#if (RTE_VER_YEAR >= 16) && (RTE_VER_MONTH >= 11)
+uint8_t RTE_LOG_LEVEL;
+#endif
+
 /**
  * Main function.
  */
@@ -52,6 +57,14 @@ int main(int argc, char **argv)
 
 	/* DP Init */
 	dp_init(argc, argv);
+
+/** Note :In dpdk set max log level is INFO, here override the
+ *  max value of RTE_LOG_INFO for enable DEBUG logs (dpdk-16.11.4).
+ */
+#if (RTE_VER_YEAR >= 16) && (RTE_VER_MONTH >= 11)
+	if (app.log_level == DEBUG)
+		RTE_LOG_LEVEL = RTE_LOG_DEBUG;
+#endif
 
 	switch (app.spgw_cfg) {
 		case SGWU:

@@ -28,7 +28,7 @@
 #define DEFAULT_CDR_PATH  "./cdr/"
 
 #define CDR_TIME_FIELD_INDEX 1
-#define NUM_CDR_FIELDS       17
+#define NUM_CDR_FIELDS       18
 
 #define RECORD_TIME_FORMAT "%Y%m%d%H%M%S"
 #define RECORD_TIME_LENGTH 16 /* buffer size for RECORD_TIME_FORMAT-ed string */
@@ -50,15 +50,20 @@ typedef const char *(*cb_str_type) (struct dp_session_info *session,
 		struct chrg_data_vol *vol,
 		struct dp_pcc_rules *pcc_rule,
 		struct adc_rules *adc_rule);
+typedef uint8_t (*cb_8_type) (struct dp_session_info *session,
+		struct chrg_data_vol *vol,
+		struct dp_pcc_rules *pcc_rule,
+		struct adc_rules *adc_rule);
 
 struct cdr_field_t {
 	const char *header;
-	enum {CDR_VALUE, CDR_CB_64, CDR_CB_32, CDR_CB_STR} type;
+	enum {CDR_VALUE, CDR_CB_64, CDR_CB_32, CDR_CB_8, CDR_CB_STR} type;
 	const char *format_specifier;
 	union {
 		uint64_t *value;
 		cb_64_type cb_64;
 		cb_32_type cb_32;
+		cb_8_type cb_8;
 		cb_str_type cb_str;
 	};
 };

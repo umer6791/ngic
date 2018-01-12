@@ -100,13 +100,12 @@ sgw_s5_s8_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts,
 {
 	struct dp_sdf_per_bearer_info *sdf_info[MAX_BURST_SZ];
 	struct dp_session_info *si[MAX_BURST_SZ];
-	uint32_t *rule_id;
 	uint64_t pkts_mask;
 
 	pkts_mask = (~0LLU) >> (64 - n);
 
 	/* Get downlink session info */
-	dl_sess_info_get(pkts, n, rule_id, &pkts_mask, &sdf_info[0], &si[0]);
+	dl_sess_info_get(pkts, n, &pkts_mask, &sdf_info[0], &si[0]);
 
 	update_enb_info(pkts, n, &pkts_mask, &sdf_info[0]);
 
@@ -127,18 +126,18 @@ void
 filter_ul_traffic(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 		int wk_index, uint64_t *pkts_mask)
 {
-	uint32_t *sdf_rule_id;
+	uint32_t *sdf_rule_id = NULL;
 	struct pcc_id_precedence sdf_info[MAX_BURST_SZ];
 	struct pcc_id_precedence adc_info[MAX_BURST_SZ];
-
+	void *adc_ue_info[MAX_BURST_SZ] = {NULL};
+	struct dp_sdf_per_bearer_info *sdf_bearer_info[MAX_BURST_SZ] = {NULL};
+	uint64_t adc_pkts_mask = 0;
+	uint32_t *adc_rule_a;
+	uint32_t adc_rule_b[MAX_BURST_SZ];
 
 	sdf_rule_id = sdf_lookup(pkts, n);
 
 	filter_pcc_entry_lookup(FILTER_SDF, sdf_rule_id, n, &sdf_info[0]);
-
-
-	uint32_t *adc_rule_a;
-	uint32_t adc_rule_b[MAX_BURST_SZ];
 
 	/* ADC table lookup*/
 	adc_rule_a = adc_ul_lookup(pkts, n);
@@ -150,9 +149,17 @@ filter_ul_traffic(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	 * overwrite the result from filter table.	*/
 	update_adc_rid_from_domain_lookup(adc_rule_a, &adc_rule_b[0], n);
 
+	/* get ADC UE info struct*/
+	adc_ue_info_get(pkts, n, adc_rule_a, &adc_ue_info[0], UL_FLOW);
+
 	filter_pcc_entry_lookup(FILTER_ADC, adc_rule_a, n, &adc_info[0]);
 
 	pcc_gating(&sdf_info[0], &adc_info[0], n, pkts_mask);
+
+	ul_sess_info_get(pkts, n, pkts_mask, &sdf_bearer_info[0]);
+
+	update_sdf_cdr(&adc_ue_info[0], &sdf_bearer_info[0], pkts, n,
+			&adc_pkts_mask, pkts_mask, UL_FLOW);
 
 	return;
 }
@@ -181,8 +188,7 @@ s1u_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 		}
 
 		case SGWU: {
-			uint32_t *rule_id;
-			ul_sess_info_get(pkts, n, rule_id, &pkts_mask, &sdf_info[0]);
+			ul_sess_info_get(pkts, n, &pkts_mask, &sdf_info[0]);
 
 			/* Set next hop IP to S5/S8 PGW port*/
 			next_port = app.s5s8_sgwu_port;
@@ -239,11 +245,12 @@ filter_dl_traffic(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 		int wk_index, struct dp_sdf_per_bearer_info *sdf_info[],
 		struct dp_session_info *si[])
 {
-	uint32_t *sdf_rule_id;
+	uint32_t *sdf_rule_id = NULL;
 	uint64_t pkts_mask;
 	struct pcc_id_precedence sdf_info_dl[MAX_BURST_SZ];
 	struct pcc_id_precedence adc_info_dl[MAX_BURST_SZ];
-	uint32_t *pcc_id;
+	uint64_t adc_pkts_mask = 0;
+	void *adc_ue_info[MAX_BURST_SZ] = {NULL};
 
 	pkts_mask = (~0LLU) >> (64 - n);
 
@@ -271,7 +278,10 @@ filter_dl_traffic(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 
 	pcc_gating(&sdf_info_dl[0], &adc_info_dl[0], n, &pkts_mask);
 
-	dl_sess_info_get(pkts, n, pcc_id, &pkts_mask, &sdf_info[0], &si[0]);
+	dl_sess_info_get(pkts, n, &pkts_mask, &sdf_info[0], &si[0]);
+
+	update_sdf_cdr(&adc_ue_info[0], &sdf_info[0], pkts, n,
+			&adc_pkts_mask, &pkts_mask, DL_FLOW);
 #ifdef HYPERSCAN_DPI
 	/* Send cloned dns pkts to dns handler*/
 	clone_dns_pkts(pkts, n, pkts_mask);

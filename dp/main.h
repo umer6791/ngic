@@ -32,6 +32,7 @@
 #include <rte_malloc.h>
 #include <rte_meter.h>
 #include <rte_jhash.h>
+#include <rte_version.h>
 
 #include "epc_packet_framework.h"
 #include "vepc_cp_dp_api.h"
@@ -63,6 +64,14 @@
  * rte debug log level.
  */
 #define DEBUG 2
+
+/** Temp. work around for support debug log level into DP, DPDK 16.11.4 */
+#if (RTE_VER_YEAR >= 16) && (RTE_VER_MONTH >= 11)
+#undef RTE_LOG_INFO
+#define RTE_LOG_INFO debug_log
+
+extern uint8_t RTE_LOG_INFO;
+#endif
 
 /**
  * max prefetch.
@@ -645,15 +654,13 @@ adc_gating(uint32_t *rid, void **adc_info, uint32_t n,
  *	pointer to mbuf of incoming packets.
  * @param n
  *	number of pkts.
- * @param res
- *	pointer to results of acl lookup.
  * @param pkts_mask
  *	bit mask to process the pkts, reset bit to free the pkt.
  * @param sess_info
  *	session information returned after hash lookup.
  */
 void
-ul_sess_info_get(struct rte_mbuf **pkts, uint32_t n, uint32_t *res,
+ul_sess_info_get(struct rte_mbuf **pkts, uint32_t n,
 		uint64_t *pkts_mask, struct dp_sdf_per_bearer_info **sess_info);
 /**
  * Get the DL session info from table lookup.
@@ -661,15 +668,13 @@ ul_sess_info_get(struct rte_mbuf **pkts, uint32_t n, uint32_t *res,
  *	pointer to mbuf of incoming packets.
  * @param n
  *	number of pkts.
- * @param res
- *	pointer to results of acl lookup.
  * @param pkts_mask
  *	bit mask to process the pkts, reset bit to free the pkt.
  * @param sess_info
  *	session information returned after hash lookup.
  */
 void
-dl_sess_info_get(struct rte_mbuf **pkts, uint32_t n, uint32_t *res,
+dl_sess_info_get(struct rte_mbuf **pkts, uint32_t n,
 		uint64_t *pkts_mask, struct dp_sdf_per_bearer_info **sess_info,
 		struct dp_session_info **si);
 

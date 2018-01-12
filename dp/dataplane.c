@@ -185,7 +185,7 @@ gtpu_encap(struct dp_session_info **sess_info, struct rte_mbuf **pkts,
 }
 
 void
-ul_sess_info_get(struct rte_mbuf **pkts, uint32_t n, uint32_t *res,
+ul_sess_info_get(struct rte_mbuf **pkts, uint32_t n,
 		uint64_t *pkts_mask, struct dp_sdf_per_bearer_info **sess_info)
 {
 	uint32_t j;
@@ -294,7 +294,7 @@ adc_ue_info_get(struct rte_mbuf **pkts, uint32_t n, uint32_t *res,
 }
 
 void
-dl_sess_info_get(struct rte_mbuf **pkts, uint32_t n, uint32_t *res,
+dl_sess_info_get(struct rte_mbuf **pkts, uint32_t n,
 		uint64_t *pkts_mask, struct dp_sdf_per_bearer_info **sess_info,
 		struct dp_session_info **si)
 {
@@ -434,9 +434,9 @@ pcc_gating(struct pcc_id_precedence *sdf_info, struct pcc_id_precedence *adc_inf
 /**
  * To map rating group value to index
  * @param rg_val
- *	rating group.
+ * rating group.
  * @param  rg_idx_map
- *	index map structure.
+ * index map structure.
  *
  * @return
  * rating group index

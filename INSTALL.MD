@@ -123,12 +123,6 @@ MME must utilize the predefined filters contained within this file.
 CP dpdk run parameters:
 
 ```text
-    -c coremask                - An hexadecimal bit mask of the cores to run on. For base
-                                 functionality, the control plane requires a minimum 2 cores,
-                                 (or 1 core if built with SDN_ODL_BUILD). If the display of
-                                 CP statistics is desired, an additional core is required
-                                 for a total of 3 (or 2) cores.
-    -n 4                       - Recommend using all available memory channels
     --socket-mem X,Y           - Memory has been allocated according to NUMA-awareness,
                                  suggest using memory on socket corresponding to coremask
     --file-prefix cp           - Required for collocated Control and Dataplane
@@ -380,17 +374,18 @@ been added
 -------------------------------
 
 ###### Dependencies
-* DPDK 16.04: Downloaded as a submodule, using `--recursive` when cloning this repo or using the `install.sh` script.
-Alternatively, it can be downloaded and installed manually from [here](http://fast.dpdk.org/rel/dpdk-16.04.tar.xz).
+* DPDK 16.11.4: Downloaded as a submodule, using `--recursive` when cloning this repo or using the `install.sh` script.
+Alternatively, it can be downloaded and installed manually from [here](http://fast.dpdk.org/rel/dpdk-16.11.4.tar.gz).
 Both the options are avialble as part of install.sh below.
 * libpcap-dev
 * libzmq
 * libcurl
+* libssl-dev
 
 ###### Environment variables
 
 ```shell
-export RTE_SDK=<dpdk 16.04 directory>
+export RTE_SDK=<dpdk 16.11.4 directory>
 export RTE_TARGET=x86_64-native-linuxapp-gcc
 ```
 
@@ -419,17 +414,16 @@ Following are the options for setup:
 ----------------------------------------------------------
 [3] Agree to download
 [4] Download packages
-[5] Download DPDK submodule
-[6] Download DPDK zip (optional, use it when option 5 fails)
-[7] Install DPDK
-[8] Download hyperscan
+[5] Download DPDK zip
+[6] Install DPDK
+[7] Download hyperscan
 
 ----------------------------------------------------------
 Step 3: Build NGIC
 ----------------------------------------------------------
-[9] Build NGIC
+[8] Build NGIC
 
-[10] Exit Script
+[9] Exit Script
 
 ```
 
@@ -444,13 +438,11 @@ Step 3: Build NGIC
 [3] Select yes in this option to be able to download the required packages.
 [4] Actual download of the dependent packages like libpcap, build essentials
     etc.
-[5] This option downloads dpdk which is added as a git submodule in the
-    ngic repo and then sets the dpdk directory to this directory.
-[6] Alternatively dpdk can be downloaded as a zip file using this option.
-[7] Build and set environment variables to use DPDK.
-[8] Setup hugepages for the system. This option is displayed in menu when
+[5] Download dpdk as a zip file using this option.
+[6] Build and set environment variables to use DPDK.
+[7] Download hyperscan library. This option is displayed in menu when
     'DP Only' or 'Collocated CP and DP' option is selected in [2].
-[9] Build controlplane and dataplane applications. This sets the RTE_SDK
+[8] Build controlplane and dataplane applications. This sets the RTE_SDK
     environment variable and builds the applications.
 
 #### 3.2 Manual build:
@@ -544,7 +536,7 @@ a. Setup 10G ports for VNF to run:
     Use `$RTE_SDK/tools/setup.sh` for binding the ports.
 
   For more details refer
-  http://dpdk.org/doc/guides-16.04/linux_gsg/build_dpdk.html#binding-and-unbinding-network-ports-to-from-the-kernel-modules
+  http://dpdk.org/doc/guides-16.11/linux_gsg/build_dpdk.html#binding-and-unbinding-network-ports-to-from-the-kernel-modules
 
 b. Add the mac addresses of port0 and port1 in config/dp_config.cfg to run ngic_dataplane.
 
@@ -568,13 +560,13 @@ Dataplane has been tested with SRIOV and OVS with SIMU_CP configuration:
 
 * SRIOV Setup:
     -   OS : Ubuntu 16.04 LTS Server Edition.
-    -   DPDK: 16.04 version
+    -   DPDK: 16.11.4 version
     -   Hypervisor: KVM
-        Please refer [setup sriov](http://dpdk.org/doc/guides-16.04/nics/intel_vf.html)
+        Please refer [setup sriov](http://dpdk.org/doc/guides-16.11/nics/intel_vf.html)
 
 * OVS Setup:
     -   OS : Ubuntu 16.04 LTS Server Edition.
-    -   DPDK: 16.04 version
+    -   DPDK: 16.11.4 version
     -   OVS: 2.5
     -   Hypervisor: KVM
     -   Supported deployment : PHY-VM-PHY

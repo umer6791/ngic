@@ -85,6 +85,11 @@ int s11_pcap_fd = -1;
 int s5s8_sgwc_fd = -1;
 int s5s8_pgwc_fd = -1;
 
+/* Temp. work around for working DEBUG log level. Issue in DPDK 16.11 */
+#if (RTE_VER_YEAR >= 16) && (RTE_VER_MONTH >= 11)
+uint8_t RTE_LOG_INFO;
+#endif
+
 pcap_dumper_t *pcap_dumper;
 pcap_t *pcap_reader;
 
@@ -95,6 +100,15 @@ struct cp_params cp_params;
 static void
 set_log_level(uint8_t log_level)
 {
+
+/** Note :In dpdk set max log level is INFO, here override the
+ *  max value of RTE_LOG_INFO for enable DEBUG logs (dpdk-16.11.4).
+ */
+#if (RTE_VER_YEAR >= 16) && (RTE_VER_MONTH >= 11)
+	if (log_level == DEBUG)
+		RTE_LOG_INFO = RTE_LOG_DEBUG;
+#endif
+
 	if (log_level == DEBUG)
 		rte_set_log_level(RTE_LOG_DEBUG);
 	else if (log_level == NOTICE)

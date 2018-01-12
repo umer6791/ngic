@@ -18,7 +18,7 @@ NGIC Data Plane
 1. Meter Profile config
 --------------------------
 A set of meter profile has to be configured in file config/meter_profile.cfg.
-Respective index can be referred to set MBR or AMBR values in static_pcc.cfg and adc_rules.cfg.
+Respective index can be referred to set MBR or AMBR values in pcc_rules.cfg and adc_rules.cfg.
 
 
 

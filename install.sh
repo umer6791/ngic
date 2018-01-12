@@ -26,7 +26,7 @@ echo "--------------------------------------------------------------------------
 HUGEPGSZ=`cat /proc/meminfo  | grep Hugepagesize | cut -d : -f 2 | tr -d ' '`
 MODPROBE="/sbin/modprobe"
 INSMOD="/sbin/insmod"
-DPDK_DOWNLOAD="http://dpdk.org/browse/dpdk/snapshot/dpdk-16.04.zip"
+DPDK_DOWNLOAD="https://fast.dpdk.org/rel/dpdk-16.11.4.tar.gz"
 DPDK_DIR=$NGIC_DIR/dpdk
 
 #
@@ -109,15 +109,13 @@ step_2()
 	FUNC[1]="get_agreement_download"
 	TEXT[2]="Download packages"
 	FUNC[2]="install_libs"
-	TEXT[3]="Download DPDK submodule"
-	FUNC[3]="download_dpdk_submodule"
-	TEXT[4]="Download DPDK zip (optional, use it when option 5 fails)"
-	FUNC[4]="download_dpdk_zip"
-	TEXT[5]="Install DPDK"
-	FUNC[5]="install_dpdk"
-	if [ $SERVICE -ne 1 ] ; then
-	TEXT[6]="Download hyperscan"
-	FUNC[6]="download_hyperscan"
+	TEXT[3]="Download DPDK zip"
+	FUNC[3]="download_dpdk_zip"
+	TEXT[4]="Install DPDK"
+	FUNC[4]="install_dpdk"
+	if [ "$SERVICE" -ne 1 ] ; then
+	TEXT[5]="Download hyperscan"
+	FUNC[5]="download_hyperscan"
 	fi
 }
 
@@ -126,7 +124,7 @@ get_agreement_download()
 	echo
 	echo "List of packages needed for NGIC build and installation:"
 	echo "-------------------------------------------------------"
-	echo "1.  DPDK version 16.04"
+	echo "1.  DPDK version 16.11.4"
 	echo "2.  build-essential"
 	echo "3.  linux-headers-generic"
 	echo "4.  git"
@@ -135,7 +133,8 @@ get_agreement_download()
 	echo "7.  make"
 	echo "8.  hyperscan"
 	echo "9.  curl"
-	echo "10. and other library dependencies"
+	echo "10. openssl-dev"
+	echo "11. and other library dependencies"
 	while true; do
 		read -p "We need download above mentioned package. Press (y/n) to continue? " yn
 		case $yn in
@@ -168,20 +167,6 @@ install_libs()
 	touch .download
 }
 
-download_dpdk_submodule()
-{
-	echo "Download DPDK submodule"
-	file_name=".agree"
-	if [ ! -e "$file_name" ]; then
-		echo "Please choose option '3. Agree to download' first"
-		return
-	fi
-	git submodule -q update --init --recursive
-	if [ $? -ne 0 ] ; then
-		echo "Failed to download dpdk submodule, Please use next option to download dpdk."
-	fi
-}
-
 download_dpdk_zip()
 {
 	echo "Download DPDK zip"
@@ -190,20 +175,27 @@ download_dpdk_zip()
 		echo "Please choose option '3. Agree to download' first"
 		return
 	fi
-	wget ${DPDK_DOWNLOAD}
-	unzip -o ${DPDK_DOWNLOAD##*/}
-	rm -rf $NGIC_DIR/dpdk/
-	mv $NGIC_DIR/dpdk-16.04/ $NGIC_DIR/dpdk
+	wget "${DPDK_DOWNLOAD}"
+
+	if [ $? -ne 0 ] ; then
+		echo "Failed to download dpdk submodule."
+		return
+	fi
+
+	tar -xzvf "${DPDK_DOWNLOAD##*/}"
+	rm -rf "$NGIC_DIR"/dpdk/
+	rm -f "${DPDK_DOWNLOAD##*/}"
+	mv "$NGIC_DIR"/dpdk-*/ "$NGIC_DIR"/dpdk
 }
 
 install_dpdk()
 {
 	echo "Build DPDK"
 	export RTE_TARGET=x86_64-native-linuxapp-gcc
-	cp -f dpdk-16.04_common_linuxapp $DPDK_DIR/config/common_linuxapp
+	cp -f dpdk-16.04_common_linuxapp "$DPDK_DIR"/config/common_linuxapp
 
-	pushd $DPDK_DIR
-	make -j install T=$RTE_TARGET
+	pushd "$DPDK_DIR"
+	make -j install T="$RTE_TARGET"
 	if [ $? -ne 0 ] ; then
 		echo "Failed to build dpdk, please check the errors."
 		return
@@ -211,8 +203,8 @@ install_dpdk()
 	sudo modinfo igb_uio
 	if [ $? -ne 0 ] ; then
 		sudo $MODPROBE -v uio
-		sudo $INSMOD $RTE_TARGET/kmod/igb_uio.ko
-		sudo cp -f $RTE_TARGET/kmod/igb_uio.ko /lib/modules/$(uname -r)
+		sudo $INSMOD "$RTE_TARGET"/kmod/igb_uio.ko
+		sudo cp -f "$RTE_TARGET"/kmod/igb_uio.ko /lib/modules/"$(uname -r)"
 		echo "uio" | sudo tee -a /etc/modules
 		echo "igb_uio" | sudo tee -a /etc/modules
 		sudo depmod

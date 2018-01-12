@@ -58,8 +58,6 @@ FILE *mtr_file;
 
 uint64_t cdr_count;
 
-
-
 /* CDR IP to string helper functions */
 const char *
 iptoa(struct ip_addr addr)
@@ -280,6 +278,16 @@ rate_group_cb(struct dp_session_info *session,
 	return 0;
 }
 
+static uint8_t
+report_level_cb(struct dp_session_info *session,
+		struct chrg_data_vol *vol,
+		struct dp_pcc_rules *pcc_rule,
+		struct adc_rules *adc_rule) {
+	if (pcc_rule)
+		return pcc_rule->report_level;
+	PANIC_ON_UNDEFINED_RULE();
+	return 0;
+}
 
 #if 0
 /* TODO : Param is not present in pcc or adc rules file */
@@ -325,6 +333,11 @@ tarriff_time_cb(struct dp_session_info *session,
 	.type = CDR_CB_32, \
 	.format_specifier = "%"PRIu64",", \
 	.cb_32 = func}
+#define DEFINE_CB_8(head, func) {\
+	.header = head, \
+	.type = CDR_CB_8, \
+	.format_specifier = "%"PRIu64",", \
+	.cb_8 = func}
 #define DEFINE_CB_STR(head, func) {\
 	.header = head, \
 	.type = CDR_CB_STR, \
@@ -350,6 +363,7 @@ struct cdr_field_t cdr_fields[NUM_CDR_FIELDS] = {
 		DEFINE_CB_STR("sponsor_id", sponsor_id_cb),
 		DEFINE_CB_32("service_id", service_id_cb),
 		DEFINE_CB_32("rate_group", rate_group_cb),
+		DEFINE_CB_8("report_level", report_level_cb),
 		/**
 		 * DEFINE_CB_STR("tarriff_group", tarriff_group_cb),
 		 * DEFINE_CB_STR("tarriff_time", tarriff_time_cb),
@@ -421,6 +435,12 @@ export_record(struct dp_session_info *session,
 		case CDR_CB_STR:
 			fprintf(cdr_file_stream, cdr_fields[i].format_specifier,
 					cdr_fields[i].cb_str(session,
+							vol, pcc_rule,
+							adc_rule));
+			break;
+		case CDR_CB_8:
+			fprintf(cdr_file_stream, cdr_fields[i].format_specifier,
+					cdr_fields[i].cb_8(session,
 							vol, pcc_rule,
 							adc_rule));
 			break;
@@ -585,6 +605,7 @@ cdr_init(void)
 	create_new_cdr_file();
 
 	mtr_init();
+
 }
 
 void
