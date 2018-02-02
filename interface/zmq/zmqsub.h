@@ -94,6 +94,7 @@ struct zmqbuf {
 			uint32_t ue_ipv4;
 			uint32_t s1u_sgw_teid;
 			uint32_t s1u_sgw_ipv4;
+			uint32_t s5s8_ipv4;
 			uint64_t session_id;
 			uint8_t  controller_topic;
 			uint32_t client_id;
@@ -133,6 +134,7 @@ struct zmqbuf {
 			uint8_t  source_topic_id; /* topic_id of sending node */
 			uint8_t  status;   /* status of sending node */
 			uint32_t source;
+			uint8_t dpn_type;
 			uint8_t  node_network_id_buffer[NN_ID_BUF_LEN];
 		} status_indication;
 		struct dpn_status_ack_t {

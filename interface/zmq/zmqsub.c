@@ -24,6 +24,7 @@
 
 #include "zmqsub.h"
 #include "zmqpub.h"
+#include "main.h"
 
 static void *zmqsub_sockctxt;
 static void *zmqsub_socket;
@@ -44,6 +45,7 @@ enum {
 /** For use when dpn_lifecycle_state = ASSIGN_TOPIC_WAIT */
 static time_t assign_topic_time;
 
+extern struct app_params app;
 #define ASSIGN_TOPIC_TIMEOUT 10
 
 #if ZMQSUB_DEBUG
@@ -361,6 +363,7 @@ static void zmq_status_hello(void)
 					.source_topic_id = dpn_topic_id,
 					.status = HELLO,
 					.source = source,
+					.dpn_type = app.spgw_cfg,
 			},
 	};
 

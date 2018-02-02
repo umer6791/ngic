@@ -36,6 +36,7 @@
 #include "acl.h"
 #include "meter.h"
 #include "vepc_cp_dp_api.h"
+#include "cp.h"
 
 /******************** IPC msgs **********************/
 #ifdef CP_BUILD
@@ -308,17 +309,42 @@ session_create(struct dp_id dp_id,
 	struct msgbuf msg_payload;
 	build_dp_msg(MSG_SESS_CRE, dp_id, (void *)&entry, &msg_payload);
 #ifdef SDN_ODL_BUILD
-	return send_nb_create_modify(
-			JSON_OBJ_OP_TYPE_CREATE,
-			JSON_OBJ_INSTR_3GPP_MOB_CREATE,
-			entry.sess_id,
-			htonl(entry.ue_addr.u.ipv4_addr),
-			htonl(entry.dl_s1_info.enb_addr.u.ipv4_addr),
-			htonl(entry.ul_s1_info.sgw_addr.u.ipv4_addr),
-			htonl(entry.dl_s1_info.enb_teid),
-			htonl(entry.ul_s1_info.sgw_teid),
-			htonl(entry.ue_addr.u.ipv4_addr),
-			UE_BEAR_ID(entry.sess_id));
+	switch(spgw_cfg) {
+	case SGWC :
+	case SPGWC :
+		return send_nb_create_modify(
+				JSON_OBJ_OP_TYPE_CREATE,
+				JSON_OBJ_INSTR_3GPP_MOB_CREATE,
+				entry.sess_id,
+				htonl(entry.ue_addr.u.ipv4_addr),
+				htonl(entry.dl_s1_info.enb_addr.u.ipv4_addr),
+				htonl(entry.ul_s1_info.s5s8_pgwu_addr.u.ipv4_addr),
+				htonl(entry.ul_s1_info.sgw_addr.u.ipv4_addr),
+				htonl(entry.dl_s1_info.enb_teid),
+				htonl(entry.ul_s1_info.sgw_teid),
+				htonl(entry.ue_addr.u.ipv4_addr),
+				UE_BEAR_ID(entry.sess_id));
+		break;
+
+	case PGWC :
+		return send_nb_create_modify(
+				JSON_OBJ_OP_TYPE_CREATE,
+				JSON_OBJ_INSTR_3GPP_MOB_CREATE,
+				entry.sess_id,
+				htonl(entry.ue_addr.u.ipv4_addr),
+				htonl(entry.dl_s1_info.enb_addr.u.ipv4_addr),
+				htonl(entry.dl_s1_info.s5s8_sgwu_addr.u.ipv4_addr),
+				htonl(entry.ul_s1_info.sgw_addr.u.ipv4_addr),
+				htonl(entry.dl_s1_info.enb_teid),
+				htonl(entry.ul_s1_info.sgw_teid),
+				htonl(entry.ue_addr.u.ipv4_addr),
+				UE_BEAR_ID(entry.sess_id));
+		break;
+
+	default :
+		rte_panic("ERROR: INVALID DPN Type :%d\n", spgw_cfg);
+	}
+
 #else
 	return send_dp_msg(dp_id, &msg_payload);
 #endif		/* SDN_ODL_BUILD */
@@ -341,6 +367,7 @@ session_modify(struct dp_id dp_id,
 			entry.sess_id,
 			htonl(entry.ue_addr.u.ipv4_addr),
 			htonl(entry.dl_s1_info.enb_addr.u.ipv4_addr),
+			htonl(entry.ul_s1_info.s5s8_pgwu_addr.u.ipv4_addr),
 			htonl(entry.ul_s1_info.sgw_addr.u.ipv4_addr),
 			htonl(entry.dl_s1_info.enb_teid),
 			htonl(entry.ul_s1_info.sgw_teid),

@@ -252,13 +252,15 @@ ul_sess_info_get(struct rte_mbuf **pkts, uint32_t n,
 		hit_mask = 0;
 	}
 
-	for (j = 0; j < n; j++) {
-		if (!ISSET_BIT(hit_mask, j)) {
-			RESET_BIT(*pkts_mask, j);
-			RTE_LOG(DEBUG, DP, "SDF BEAR LKUP:FAIL!! UL_KEY "
-				"teid:%u, rid:%u\n",
-				key[j].s1u_sgw_teid, key[j].rid);
-			sess_info[j] = NULL;
+	if (app.spgw_cfg != PGWU) {
+		for (j = 0; j < n; j++) {
+			if (!ISSET_BIT(hit_mask, j)) {
+				RESET_BIT(*pkts_mask, j);
+				RTE_LOG(DEBUG, DP, "SDF BEAR LKUP:FAIL!! UL_KEY "
+					"teid:%u, rid:%u\n",
+					key[j].s1u_sgw_teid, key[j].rid);
+				sess_info[j] = NULL;
+			}
 		}
 	}
 }
