@@ -539,6 +539,28 @@ zmq_mbuf_process(struct zmqbuf *zmqmsgbuf_rx, int zmqmsglen)
 			ntohl(csm->s1u_sgw_ipv4);
 		sess->dl_s1_info.enb_teid = 0;
 
+		switch(app.spgw_cfg) {
+		case SGWU:
+			/* Configure PGWU IP addr */
+			sess->ul_s1_info.s5s8_pgwu_addr.iptype = IPTYPE_IPV4;
+			sess->ul_s1_info.s5s8_pgwu_addr.u.ipv4_addr = ntohl(csm->s5s8_ipv4);
+			break;
+
+		case PGWU:
+			/* Configure SGWU IP addr */
+			sess->dl_s1_info.s5s8_sgwu_addr.iptype = IPTYPE_IPV4;
+			sess->dl_s1_info.s5s8_sgwu_addr.u.ipv4_addr = ntohl(csm->s5s8_ipv4);
+			sess->dl_s1_info.enb_teid = csm->s1u_sgw_teid;
+
+			/* Add default pcc rule entry for dl */
+			sess->num_dl_pcc_rules = 1;
+			sess->dl_pcc_rule_id[0] = 1;
+			break;
+
+		default:
+			break;
+		}
+
 		sess->num_ul_pcc_rules = 1;
 		sess->ul_pcc_rule_id[0] = 1;
 

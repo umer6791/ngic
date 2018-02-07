@@ -338,7 +338,13 @@ process_pgwc_s5s8_create_session_request(gtpv2c_header *gtpv2c_rx,
 	session.dl_s1_info.s5s8_sgwu_addr.iptype = IPTYPE_IPV4;
 	session.dl_s1_info.s5s8_sgwu_addr.u.ipv4_addr =
 			ntohl(bearer->s5s8_sgw_gtpu_ipv4.s_addr);
+
 	session.dl_s1_info.enb_teid = ntohl(bearer->s5s8_sgw_gtpu_teid);
+
+#ifdef SDN_ODL_BUILD
+	/* Pass SGWU teid to PGWU */
+	session.ul_s1_info.sgw_teid = ntohl(bearer->s5s8_sgw_gtpu_teid);
+#endif /*SDN_ODL_BUILD*/
 
 	session.dl_s1_info.sgw_addr.iptype = IPTYPE_IPV4;
 	session.dl_s1_info.sgw_addr.u.ipv4_addr =

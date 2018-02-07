@@ -53,7 +53,7 @@
 
 
 #define MESSAGE_BUFFER_SIZE (1 << 13)
-#define OP_ID_HASH_SIZE     (1 << 14)
+#define OP_ID_HASH_SIZE     (1 << 15)
 
 
 #define DO_CHECK_CURL_EASY_SETOPT(one, two, three) \
@@ -145,13 +145,13 @@ consume_topology_output(char *ptr, size_t size, size_t nmemb,
 	int i;
 
 	if (object == NULL) {
-		object = calloc(1, nmemb * size + 1);
-		strncpy(object, ptr, size * nmemb);
+		object = calloc(1, (nmemb * size) + 1);
+		strncpy(object, ptr, (size * nmemb));
 	} else {
 		char *tmp = object;
-		object = calloc(1, strlen(tmp) + (size * nmemb));
+		object = calloc(1, strlen(tmp) + (size * nmemb) + 1);
 		strcpy(object, tmp);
-		strncat(object, ptr, size * nmemb);
+		strncat(object, ptr, (size * nmemb));
 		free(tmp);
 	}
 
@@ -160,49 +160,73 @@ consume_topology_output(char *ptr, size_t size, size_t nmemb,
 	if (jobj == NULL || error != json_tokener_success)
 		return size * nmemb;
 
+	RTE_LOG(DEBUG, CP, "FPC Topology json obj:%s\n", \
+			json_object_to_json_string_ext(jobj, \
+				JSON_C_TO_STRING_SPACED | JSON_C_TO_STRING_PRETTY));
 
-	json_object *fpc_topology_jobj;
-	ret = json_object_object_get_ex(jobj, "fpc-topology",
-			&fpc_topology_jobj);
-	if (ret == FALSE || json_object_get_type(fpc_topology_jobj) !=
-			json_type_object) {
+	json_object *dpn_types_jobj;
+	ret = json_object_object_get_ex(jobj, "dpn-types",
+			&dpn_types_jobj);
+
+	if (ret == FALSE || json_object_get_type(dpn_types_jobj) !=
+			json_type_array) {
 		free(object);
 		object = NULL;
 		json_object_put(jobj);
 		return size * nmemb;
 	}
 
-	json_object *dpns_jobj;
-	ret = json_object_object_get_ex(fpc_topology_jobj, "dpns", &dpns_jobj);
-	if (json_object_get_type(dpns_jobj) != json_type_array) {
-		free(object);
-		object = NULL;
-		json_object_put(jobj);
-		return size * nmemb;
-	}
+	RTE_LOG(DEBUG, CP, "Dpn-types json obj:%s\n", \
+			json_object_to_json_string_ext(dpn_types_jobj, \
+				JSON_C_TO_STRING_SPACED | JSON_C_TO_STRING_PRETTY));
 
-	int dpns_jobj_array_length = json_object_array_length(dpns_jobj);
-	if (dpns_jobj_array_length > 0)
+	int dpn_types_jobj_array_len = json_object_array_length(dpn_types_jobj);
+	if (dpn_types_jobj_array_len > 0) {
 
-	for (i = 0; i < dpns_jobj_array_length; ++i) {
-		json_object *dpn_jobj =
-				json_object_array_get_idx(dpns_jobj, i);
+		for (i = 0; i < dpn_types_jobj_array_len; ++i) {
+			json_object *fpc_jobj =
+					json_object_array_get_idx(dpn_types_jobj, i);
 
-		json_object *dpn_id_jobj;
-		ret = json_object_object_get_ex(dpn_jobj, "dpn-id",
-				&dpn_id_jobj);
-		if (ret == FALSE || json_object_get_type(dpn_id_jobj) !=
-				json_type_string) {
-			free(object);
-			object = NULL;
-			json_object_put(jobj);
-			return size * nmemb;
-		}
+			json_object *dpns_jobj = NULL;
+			ret = json_object_object_get_ex(fpc_jobj, "dpns", &dpns_jobj);
+			if (json_object_get_type(dpns_jobj) != json_type_array) {
+				free(object);
+				object = NULL;
+				json_object_put(jobj);
+				return size * nmemb;
+			}
 
-		if (dpn_id == NULL) {
-			set_dpn_id(json_object_get_string(dpn_id_jobj));
-			/* TODO: maintain list to allow multiple DPNs */
-			break;
+			RTE_LOG(DEBUG, CP, "Dpns List json obj:%s\n", \
+					json_object_to_json_string_ext(dpns_jobj, \
+						JSON_C_TO_STRING_SPACED | JSON_C_TO_STRING_PRETTY));
+
+			int dpns_jobj_array_length = json_object_array_length(dpns_jobj);
+			if (dpns_jobj_array_length > 0) {
+
+				for (i = 0; i < dpns_jobj_array_length; ++i) {
+					json_object *dpn_jobj =
+							json_object_array_get_idx(dpns_jobj, i);
+
+					/*Pickup first DP in list.
+					 * Assumption:DPN list to be sorted by FPC based on load balancing etc*/
+					json_object *dpn_id_jobj;
+					ret = json_object_object_get_ex(dpn_jobj, "dpn-id",
+							&dpn_id_jobj);
+					if (ret == FALSE || json_object_get_type(dpn_id_jobj) !=
+							json_type_string) {
+						free(object);
+						object = NULL;
+						json_object_put(jobj);
+						return size * nmemb;
+					}
+
+					if (dpn_id == NULL) {
+						set_dpn_id(json_object_get_string(dpn_id_jobj));
+						/* TODO: maintain list to allow multiple DPNs */
+						break;
+					}
+				}
+			}
 		}
 	}
 
@@ -235,6 +259,8 @@ init_curl(CURL **curl, struct curl_slist **list, const char *request,
 		const uint16_t port, curl_write_callback write_callback) {
 	char uri[256];
 
+	RTE_LOG(DEBUG, CP, "get-topology URI PATH:%s\n", uri_path);
+
 	*curl = curl_easy_init();
 	if (!*curl)
 		rte_panic("curl_easy_init failed\n");
@@ -266,13 +292,35 @@ get_topology(void) {
 	long res_code;
 	CURL *curl_topology = NULL;
 	struct curl_slist *topology_list = NULL;
+	char URI_PATH[SDN_TOPOLOGY_URI_LEN] = SDN_TOPOLOGY_URI_PATH;
 
 	curl_global_init(CURL_GLOBAL_ALL);
 
-	init_curl(&curl_topology, &topology_list, HTTP_METHOD_GET,
-			SDN_TOPOLOGY_URI_PATH,
-			fpc_ip, fpc_topology_port,
-			&consume_topology_output);
+	switch(spgw_cfg) {
+		case SGWC:
+			init_curl(&curl_topology, &topology_list, HTTP_METHOD_GET,
+					strcat(URI_PATH, "/dpn-types/sgwu"),
+					fpc_ip, fpc_topology_port,
+					&consume_topology_output);
+			break;
+
+		case PGWC:
+			init_curl(&curl_topology, &topology_list, HTTP_METHOD_GET,
+					strcat(URI_PATH, "/dpn-types/pgwu"),
+					fpc_ip, fpc_topology_port,
+					&consume_topology_output);
+			break;
+
+		case SPGWC:
+			init_curl(&curl_topology, &topology_list, HTTP_METHOD_GET,
+					strcat(URI_PATH, "/dpn-types/spgw"),
+					fpc_ip, fpc_topology_port,
+					&consume_topology_output);
+			break;
+
+		default:
+			rte_panic("ERROR : INVALID CP Type.\n");
+	}
 
 	ret = curl_easy_perform(curl_topology);
 	if (ret != CURLE_OK) {
@@ -1390,10 +1438,27 @@ server(void)
 	FD_ZERO(&fd_set_zero);
 	FD_ZERO(&fd_set_responded);
 
-	if (s11_fd != -1)
-		FD_SET(s11_fd, &fd_set_active);
-	if (s11_pcap_fd != -1)
-		FD_SET(s11_pcap_fd, &fd_set_active);
+	switch (spgw_cfg) {
+	case SGWC:
+		if (s5s8_sgwc_fd != -1)
+			FD_SET(s5s8_sgwc_fd, &fd_set_active);
+
+	case SPGWC:
+		if (s11_fd != -1)
+			FD_SET(s11_fd, &fd_set_active);
+		if (s11_pcap_fd != -1)
+			FD_SET(s11_pcap_fd, &fd_set_active);
+		break;
+
+	 case PGWC:
+		if (s5s8_pgwc_fd != -1)
+			FD_SET(s5s8_pgwc_fd, &fd_set_active);
+		break;
+
+	default:
+		break;
+
+	}
 
 	while (memcmp(&fd_set_zero, &fd_set_active, sizeof(fd_set))) {
 		fd_set_read = fd_set_active;
@@ -1406,9 +1471,29 @@ server(void)
 			rte_panic("Select error: %s", strerror(errno));
 		}
 
-		if (FD_ISSET(s11_fd, &fd_set_read)) {
-			FD_CLR(s11_fd, &fd_set_read);
-			control_plane();
+		switch (spgw_cfg) {
+			case SGWC:
+				if (FD_ISSET(s5s8_sgwc_fd, &fd_set_read)) {
+					FD_CLR(s5s8_sgwc_fd, &fd_set_read);
+					control_plane();
+				}
+
+			case SPGWC:
+				if (FD_ISSET(s11_fd, &fd_set_read)) {
+					FD_CLR(s11_fd, &fd_set_read);
+					control_plane();
+				}
+				break;
+
+			case PGWC:
+				if (FD_ISSET(s5s8_pgwc_fd, &fd_set_read)) {
+					FD_CLR(s5s8_pgwc_fd, &fd_set_read);
+					control_plane();
+				}
+				break;
+
+			default:
+				rte_panic("ERROR: INVALID Control Plane type.\n");
 		}
 
 		if (FD_ISSET(response_fd, &fd_set_read)) {
@@ -1543,19 +1628,22 @@ init_nb(void)
 int
 send_nb_create_modify(const char *op_type, const char *instruction,
 		uint64_t sess_id, uint32_t assigned_ip,
-		uint32_t remote_address, uint32_t local_address,
+		uint32_t remote_address, uint32_t s5s8_address, uint32_t local_address,
 		uint32_t remote_teid, uint32_t local_teid,
 		uint64_t imsi, uint8_t ebi)
 {
 	static char json_buf[MESSAGE_BUFFER_SIZE];
 	char assigned_address_string[INET_ADDRSTRLEN];
 	char remote_address_string[INET_ADDRSTRLEN];
+	char s5s8_address_string[INET_ADDRSTRLEN];
 	char local_address_string[INET_ADDRSTRLEN];
 
 	strcpy(assigned_address_string,
 		inet_ntoa(*((struct in_addr *)&assigned_ip)));
 	strcpy(remote_address_string,
 		inet_ntoa(*((struct in_addr *)&remote_address)));
+	strcpy(s5s8_address_string,
+		inet_ntoa(*((struct in_addr *)&s5s8_address)));
 	strcpy(local_address_string,
 		inet_ntoa(*((struct in_addr *)&local_address)));
 
@@ -1573,9 +1661,11 @@ send_nb_create_modify(const char *op_type, const char *instruction,
 			assigned_address_string,
 			local_address_string,		/* SGW-S1U IP Address*/
 			remote_address_string,		/* eNB-S1U IP Address*/
+			s5s8_address_string,		/* S5S8 IP Address*/
 			local_teid,			/* SGW-S1U TEID */
 			local_address_string,		/* SGW-S1U IP Address*/
 			remote_address_string,		/* eNB-S1U IP Address*/
+			s5s8_address_string,		/* S5S8 IP Address*/
 			remote_teid,			/* eNB-S1U TEID */
 			dpn_id,
 			imsi,
@@ -1585,6 +1675,7 @@ send_nb_create_modify(const char *op_type, const char *instruction,
 			op_type);
 
 	add_nb_op_id_hash();
+	RTE_LOG(DEBUG, CP, "SSE Json Stream :%s\n", json_buf);
 
 	return send_sse(request_fd, SSE_CONFIGURE_EVENT, json_buf, __func__);
 }

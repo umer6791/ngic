@@ -62,6 +62,10 @@ do {\
 			entry->ul_s1_info.enb_addr.u.ipv4_addr);\
 	printf("\t%*s:0x%"PRIx32"\n", WIDTH, "ul_s1_info.sgw_addr.u.ipv4_addr",\
 			entry->ul_s1_info.sgw_addr.u.ipv4_addr);\
+	printf("\t%*s:0x%"PRIx32"\n", WIDTH, "ul_s1_info.s5s8_pgwu_addr.u.ipv4_addr",\
+			entry->ul_s1_info.s5s8_pgwu_addr.u.ipv4_addr);\
+	printf("\t%*s:0x%"PRIx32"\n", WIDTH, "dl_s1_info.s5s8_sgwu_addr.u.ipv4_addr",\
+			entry->dl_s1_info.s5s8_sgwu_addr.u.ipv4_addr);\
 	printf("\t%*s:0x%"PRIx32"\n", WIDTH, "ul_s1_info.sgw_teid", \
 			entry->ul_s1_info.sgw_teid);\
 	printf("\t%*s:0x%"PRIx32"\n", WIDTH, "dl_s1_info.enb_addr.u.ipv4_addr",\

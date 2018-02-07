@@ -117,6 +117,7 @@
 	"{\"input\":{\"client-id\":\"%" PRI_CLIENT_ID "\"}}"
 
 #define UIDPWD "admin:admin"
+#define SDN_TOPOLOGY_URI_LEN 256
 #define SDN_TOPOLOGY_URI_PATH \
 	"/restconf/config/ietf-dmm-fpcagent:tenants/tenant/default/fpc-topology"
 
@@ -137,6 +138,7 @@
 		"\"ul\": {" \
 			"\"tunnel-local-address\": \"%s\"," \
 			"\"tunnel-remote-address\": \"%s\"," \
+			"\"tunnel-s5s8-address\": \"%s\"," \
 			"\"mobility-tunnel-parameters\": {" \
 				"\"tunnel-type\": \"ietf-dmm-threegpp:gtpv1\","\
 				"\"tunnel-identifier\": \"%"PRI_TEID"\"" \
@@ -146,6 +148,7 @@
 		"\"dl\": {" \
 			"\"tunnel-local-address\": \"%s\"," \
 			"\"tunnel-remote-address\": \"%s\"," \
+			"\"tunnel-s5s8-address\": \"%s\"," \
 			"\"mobility-tunnel-parameters\": {" \
 				"\"tunnel-type\": \"ietf-dmm-threegpp:gtpv1\","\
 				"\"tunnel-identifier\": \"%"PRI_TEID"\"" \
@@ -190,6 +193,7 @@
 	"}" \
 "}"
 
+#define RTE_LOGTYPE_CP RTE_LOGTYPE_USER4
 
 /* From rfc2616 */
 enum http_status {
@@ -266,6 +270,8 @@ close_nb(void);
  * Assigned UE IP in network byte order
  * @param remote_address
  * eNB IP - in network byte order
+ * @param s5s8_address
+ * SGWU(in case of PGWC) or PGWU (in case of SGWC)address. Unused for SPGW.
  * @param local_address
  * SGW IP - in network byte order
  * @param remote_teid
@@ -282,7 +288,7 @@ close_nb(void);
 int
 send_nb_create_modify(const char *op_type, const char *instruction,
 		uint64_t sess_id, uint32_t assigned_ip,
-		uint32_t remote_address, uint32_t local_address,
+		uint32_t remote_address, uint32_t s5s8_address, uint32_t local_address,
 		uint32_t remote_teid, uint32_t local_teid,
 		uint64_t imsi, uint8_t ebi);
 
