@@ -48,6 +48,7 @@ SRCS-y := main.c\
 	commands.c\
 	stats.c\
 	ddn_utils.c\
+	extended_cdr.c\
 	pipeline/epc_load_balance.o\
 	pipeline/epc_packet_framework.o\
 	pipeline/epc_tx.o\
@@ -169,6 +170,10 @@ CFLAGS += -DSTATIC_ARP
 
 #un-comment below line to generate pcap on east-west interfaces
 #CFLAGS += -DPCAP_GEN
+
+#un-comment below line to generate extended CDR file.
+#Note: This will impact data traffic performance.
+#CFLAGS += -DEXTENDED_CDR
 
 CFLAGS += -Werror
 CFLAGS += -Wunused-variable

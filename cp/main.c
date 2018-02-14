@@ -447,8 +447,8 @@ init_cp(void)
 #ifdef CP_DP_TABLE_CONFIG
 	initialize_tables_on_dp();
 #endif
-	parse_adc_rules();
 	init_packet_filters();
+	parse_adc_rules();
 #endif
 
 	create_ue_hash();

@@ -265,7 +265,6 @@ filter_pcc_entry_add(enum filter_pcc_type type, uint32_t pcc_id,
 	uint32_t i;
 	struct filter_pcc_data *pinfo = NULL;
 	struct rte_hash *hash = NULL;
-	uint32_t ruleid;
 
 	if (type == FILTER_SDF)
 		hash = rte_sdf_pcc_hash;
@@ -275,15 +274,7 @@ filter_pcc_entry_add(enum filter_pcc_type type, uint32_t pcc_id,
 		return -1;
 
 	for (i = 0; i < n; i++) {
-		/* TODO: In sdf/adc/pcc config files, section start with 0
-		 *       but CP pushes rules starting with id = 1.
-		 *       In PCC config file, SDF_FILTER_IDX/SDF_FILTER_IDX defines
-		 *       rule ids as per SDF/ADC file (ie starting from 0).
-		 *       So incrementing rule_ids[i] by 1 to consider above scenario.
-		 *       Need to revisit.
-		 */
-		ruleid = rule_ids[i] + 1;
-		ret = rte_hash_lookup_data(hash, &ruleid, (void **)&pinfo);
+		ret = rte_hash_lookup_data(hash, &rule_ids[i], (void **)&pinfo);
 
 		if (ret < 0 || pinfo == NULL) {
 			/* No data found for sdf id, insert new entry*/
@@ -308,7 +299,7 @@ filter_pcc_entry_add(enum filter_pcc_type type, uint32_t pcc_id,
 			data->entries = 1;
 			data->pcc_info = pcc;
 
-			ret = rte_hash_add_key_data(hash, &ruleid, data);
+			ret = rte_hash_add_key_data(hash, &rule_ids[i], data);
 
 			if (ret < 0) {
 				rte_free(pcc);
@@ -341,7 +332,7 @@ filter_pcc_entry_add(enum filter_pcc_type type, uint32_t pcc_id,
 			data->entries = pinfo->entries + 1;
 			data->pcc_info = pcc;
 
-			ret = rte_hash_del_key(hash, &ruleid);
+			ret = rte_hash_del_key(hash, &rule_ids[i]);
 			if (ret < 0) {
 				rte_free(pcc);
 				rte_free(data);
@@ -354,7 +345,7 @@ filter_pcc_entry_add(enum filter_pcc_type type, uint32_t pcc_id,
 			pinfo = NULL;
 
 			ret = rte_hash_add_key_data(hash,
-					&ruleid, data);
+					&rule_ids[i], data);
 			if (ret < 0) {
 				rte_free(pcc);
 				rte_free(data);
@@ -405,10 +396,10 @@ filter_pcc_entry_lookup(enum filter_pcc_type type, uint32_t* rule_ids,
 
 		if (ret < 0 || pinfo == NULL) {
 			/* TODO : If there is no matching pcc rule, what should be
-			 *        values of pcc? Currently hardcoding to 0 with
-			 *        gate-status 1 (pass traffic)
+			 *        values of pcc? Currently hardcoding to 1 with
+			 *        gate-status 1 (pass traffic) : Default policy in pcc
 			 */
-			pcc_ids[i].pcc_id = 0;
+			pcc_ids[i].pcc_id = 1;
 			pcc_ids[i].precedence = 255;
 			pcc_ids[i].gate_status = 1;
 		} else {

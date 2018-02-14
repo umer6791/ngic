@@ -198,7 +198,7 @@ rule_type_cb(struct dp_session_info *session,
 		struct dp_pcc_rules *pcc_rule,
 		struct adc_rules *adc_rule) {
 	if (pcc_rule)
-		return "PCC";
+		return pcc_rule->sdf_idx_cnt > 0 ? "SDF":"ADC";
 	else if (adc_rule)
 		return "ADC";
 	PANIC_ON_UNDEFINED_RULE();
@@ -356,8 +356,8 @@ struct cdr_field_t cdr_fields[NUM_CDR_FIELDS] = {
 		DEFINE_CB_64("dl_drop_bytes", dl_drop_bytes_cb),
 		DEFINE_CB_64("ul_pkt_cnt", ul_pkt_cnt_cb),
 		DEFINE_CB_64("ul_bytes", ul_byptes_cb),
-		DEFINE_CB_32("rule_id", rule_id_cb),
-		DEFINE_CB_STR("rule_type", rule_type_cb),
+		DEFINE_CB_32("pcc_rule_id", rule_id_cb),
+		DEFINE_CB_STR("filter_type", rule_type_cb),
 		DEFINE_CB_STR("rule", rule_cb),
 		DEFINE_CB_STR("action", action_cb),
 		DEFINE_CB_STR("sponsor_id", sponsor_id_cb),

@@ -178,4 +178,34 @@ export_cdr_record(struct dp_session_info *session, char *name,
  */
 void export_mtr(struct dp_session_info *session, char *name,
 		uint32_t id, uint64_t drops);
+
+
+/**
+ * @file
+ * This file contains function prototypes of User data
+ * charging extended records.
+ */
+
+/**
+ * Open Extended Charging data record file.
+ */
+void
+extended_cdr_init(void);
+
+/**
+ * Export extended CDR record to file.
+ * @param ue_ip
+ *	ue ip.
+ * @param app_ip
+ *	application ip.
+ * @param pcc_info
+ *	pcc rule information
+ *
+ * @return
+ * Void
+ */
+void
+export_extended_cdr(char *ue_ip, char *app_ip, uint8_t pkt_mask,
+		struct pcc_rules *pcc_info, int direction);
+
 #endif /* _CDR_H */

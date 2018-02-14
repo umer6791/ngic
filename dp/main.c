@@ -120,6 +120,9 @@ int main(int argc, char **argv)
 
 	sess_cdr_init();
 
+#ifdef EXTENDED_CDR
+	extended_cdr_init();
+#endif /* EXTENDED_CDR */
 
 	iface_module_constructor();
 	dp_table_init();

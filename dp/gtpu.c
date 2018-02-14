@@ -126,3 +126,18 @@ uint32_t gtpu_inner_src_ip(struct rte_mbuf *m)
 
 	return inner_ipv4_hdr->src_addr;
 }
+
+void gtpu_get_inner_src_dst_ip(struct rte_mbuf *m,
+		uint32_t *src_ip, uint32_t *dst_ip)
+{
+	uint8_t *pkt_ptr = NULL;
+	struct ipv4_hdr *inner_ipv4_hdr = NULL;
+
+	pkt_ptr = (uint8_t *) get_mtogtpu(m);
+
+	pkt_ptr += GPDU_HDR_SIZE;
+	inner_ipv4_hdr = (struct ipv4_hdr *)pkt_ptr;
+
+	*src_ip = inner_ipv4_hdr->src_addr;
+	*dst_ip = inner_ipv4_hdr->dst_addr;
+}
