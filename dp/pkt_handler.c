@@ -28,6 +28,10 @@
 #include "acl.h"
 #include "interface.h"
 
+#ifdef EXTENDED_CDR
+uint64_t s1u_non_gtp_pkts_mask;
+#endif
+
 #ifdef PCAP_GEN
 extern pcap_dumper_t *pcap_dumper_east;
 extern pcap_dumper_t *pcap_dumper_west;
@@ -98,8 +102,8 @@ int
 sgw_s5_s8_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts,
 		uint32_t n,	int wk_index)
 {
-	struct dp_sdf_per_bearer_info *sdf_info[MAX_BURST_SZ];
-	struct dp_session_info *si[MAX_BURST_SZ];
+	struct dp_sdf_per_bearer_info *sdf_info[MAX_BURST_SZ] = {NULL};
+	struct dp_session_info *si[MAX_BURST_SZ] = {NULL};
 	uint64_t pkts_mask;
 
 	pkts_mask = (~0LLU) >> (64 - n);
@@ -131,9 +135,9 @@ filter_ul_traffic(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	struct pcc_id_precedence adc_info[MAX_BURST_SZ];
 	void *adc_ue_info[MAX_BURST_SZ] = {NULL};
 	struct dp_sdf_per_bearer_info *sdf_bearer_info[MAX_BURST_SZ] = {NULL};
-	uint64_t adc_pkts_mask = 0;
-	uint32_t *adc_rule_a;
+	uint32_t *adc_rule_a = NULL;
 	uint32_t adc_rule_b[MAX_BURST_SZ];
+	uint32_t pcc_rule_id[MAX_BURST_SZ];
 
 	sdf_rule_id = sdf_lookup(pkts, n);
 
@@ -154,12 +158,19 @@ filter_ul_traffic(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 
 	filter_pcc_entry_lookup(FILTER_ADC, adc_rule_a, n, &adc_info[0]);
 
-	pcc_gating(&sdf_info[0], &adc_info[0], n, pkts_mask);
+	pcc_gating(&sdf_info[0], &adc_info[0], n, pkts_mask, &pcc_rule_id[0]);
 
 	ul_sess_info_get(pkts, n, pkts_mask, &sdf_bearer_info[0]);
 
-	update_sdf_cdr(&adc_ue_info[0], &sdf_bearer_info[0], pkts, n,
-			&adc_pkts_mask, pkts_mask, UL_FLOW);
+	/*update_sdf_cdr(&adc_ue_info[0], &sdf_bearer_info[0], pkts, n,
+			&adc_pkts_mask, pkts_mask, UL_FLOW);*/
+	update_pcc_cdr(&sdf_bearer_info[0], pkts, n, pkts_mask,
+			&pcc_rule_id[0], UL_FLOW);
+
+#ifdef EXTENDED_CDR
+	update_extended_cdr(pkts, n, pkts_mask, &s1u_non_gtp_pkts_mask, &pcc_rule_id[0],
+			UL_FLOW);
+#endif /* EXTENDED_CDR */
 
 	return;
 }
@@ -168,16 +179,22 @@ int
 s1u_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 		int wk_index)
 {
-	struct dp_sdf_per_bearer_info *sdf_info[MAX_BURST_SZ];
+	struct dp_sdf_per_bearer_info *sdf_info[MAX_BURST_SZ] = {NULL};
 	uint64_t pkts_mask;
 	uint32_t next_port;
 
 	pkts_mask = (~0LLU) >> (64 - n);
+#ifdef EXTENDED_CDR
+	s1u_non_gtp_pkts_mask = (~0LLU) >> (64 - n);
+#endif
 
 	switch(app.spgw_cfg) {
 		case SPGWU: {
 			/* Decap GTPU and update meta data*/
 			gtpu_decap(pkts, n, &pkts_mask);
+#ifdef EXTENDED_CDR
+			s1u_non_gtp_pkts_mask = pkts_mask;
+#endif
 
 			/*Apply adc, sdf, pcc filters on uplink traffic*/
 			filter_ul_traffic(p, pkts, n, wk_index, &pkts_mask);
@@ -217,7 +234,7 @@ int
 pgw_s5_s8_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts,
 		uint32_t n,	int wk_index)
 {
-	struct dp_sdf_per_bearer_info *sdf_info[MAX_BURST_SZ];
+	struct dp_sdf_per_bearer_info *sdf_info[MAX_BURST_SZ] = {NULL};
 	uint64_t pkts_mask;
 
 	pkts_mask = (~0LLU) >> (64 - n);
@@ -249,8 +266,6 @@ filter_dl_traffic(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 	uint64_t pkts_mask;
 	struct pcc_id_precedence sdf_info_dl[MAX_BURST_SZ];
 	struct pcc_id_precedence adc_info_dl[MAX_BURST_SZ];
-	uint64_t adc_pkts_mask = 0;
-	void *adc_ue_info[MAX_BURST_SZ] = {NULL};
 
 	pkts_mask = (~0LLU) >> (64 - n);
 
@@ -258,8 +273,9 @@ filter_dl_traffic(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 
 	filter_pcc_entry_lookup(FILTER_SDF, sdf_rule_id, n, &sdf_info_dl[0]);
 
-	uint32_t *adc_rule_a;
+	uint32_t *adc_rule_a = NULL;
 	uint32_t adc_rule_b[MAX_BURST_SZ];
+	uint32_t pcc_rule_id[MAX_BURST_SZ];
 
 	/* ADC table lookup*/
 	adc_rule_a = adc_dl_lookup(pkts, n);
@@ -276,12 +292,22 @@ filter_dl_traffic(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 
 	filter_pcc_entry_lookup(FILTER_ADC, adc_rule_a, n, &adc_info_dl[0]);
 
-	pcc_gating(&sdf_info_dl[0], &adc_info_dl[0], n, &pkts_mask);
+	pcc_gating(&sdf_info_dl[0], &adc_info_dl[0], n, &pkts_mask,
+			&pcc_rule_id[0]);
 
 	dl_sess_info_get(pkts, n, &pkts_mask, &sdf_info[0], &si[0]);
 
-	update_sdf_cdr(&adc_ue_info[0], &sdf_info[0], pkts, n,
-			&adc_pkts_mask, &pkts_mask, DL_FLOW);
+	/*update_sdf_cdr(&adc_ue_info[0], &sdf_info[0], pkts, n,
+			&adc_pkts_mask, &pkts_mask, DL_FLOW);*/
+
+	update_pcc_cdr(&sdf_info[0], pkts, n, &pkts_mask,
+			&pcc_rule_id[0], DL_FLOW);
+
+#ifdef EXTENDED_CDR
+	uint64_t tmp = (~0LLU) >> (64 - n);
+	update_extended_cdr(pkts, n, &pkts_mask, &tmp, &pcc_rule_id[0], DL_FLOW);
+#endif /* EXTENDED_CDR */
+
 #ifdef HYPERSCAN_DPI
 	/* Send cloned dns pkts to dns handler*/
 	clone_dns_pkts(pkts, n, pkts_mask);
@@ -298,8 +324,8 @@ int
 sgi_pkt_handler(struct rte_pipeline *p, struct rte_mbuf **pkts, uint32_t n,
 		int wk_index)
 {
-	struct dp_sdf_per_bearer_info *sdf_info[MAX_BURST_SZ];
-	struct dp_session_info *si[MAX_BURST_SZ];
+	struct dp_sdf_per_bearer_info *sdf_info[MAX_BURST_SZ] = {NULL};
+	struct dp_session_info *si[MAX_BURST_SZ] = {NULL};
 	uint64_t pkts_mask, pkts_queue_mask = 0;
 	uint32_t next_port;
 

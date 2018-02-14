@@ -225,11 +225,10 @@ add_ul_pcc_entry_key_with_idx(struct dp_session_info *old,
 			struct dp_session_info *data, uint32_t idx)
 {
 	int ret;
-	struct dl_bm_key dl_key;
 	struct ul_bm_key ul_key;
-	struct dp_pcc_rules *pcc_info;
+	struct dp_pcc_rules *pcc_info = NULL;
 	uint32_t pcc_id;
-	struct dp_sdf_per_bearer_info *psdf;
+	struct dp_sdf_per_bearer_info *psdf = NULL;
 
 	pcc_id = data->ul_pcc_rule_id[idx];
 	if (pcc_id == 0)
@@ -246,24 +245,15 @@ add_ul_pcc_entry_key_with_idx(struct dp_session_info *old,
 			rte_panic("Failed to add rating group to index map");
 	}
 
-	/* look for previously allocated sdf per bearer info in downlink hash */
-	dl_key.ue_ipv4 = old->ue_addr.u.ipv4_addr;
-	dl_key.rid = pcc_id;
-	if (rte_hash_lookup_data(rte_downlink_hash, &dl_key,
-			(void **)&psdf) < 0) {
-		/* alloc memory for per sdf per bearer info structure*/
-		psdf = rte_zmalloc("sdf per bearer",
-				sizeof(struct dp_sdf_per_bearer_info),
-				RTE_CACHE_LINE_SIZE);
-		if (psdf == NULL) {
-			RTE_LOG(ERR, DP, "Failed to allocate memory for sdf "
-					"per bearer info");
-			return;
-		}
-
-		psdf->pcc_info = *pcc_info;
-		psdf->bear_sess_info = old;
+	/* alloc memory for per sdf per bearer info structure*/
+	psdf = rte_zmalloc("sdf per bearer", sizeof(struct dp_sdf_per_bearer_info),
+			RTE_CACHE_LINE_SIZE);
+	if (NULL == psdf) {
+		RTE_LOG(ERR, DP, "Failed to allocate memory for sdf per bearer info");
+		return ;
 	}
+	psdf->pcc_info = *pcc_info;
+	psdf->bear_sess_info = old;
 
 #ifdef SDF_MTR
 	mtr_cfg_entry(pcc_info->qos.ul_mtr_profile_index, &psdf->sdf_mtr_obj);
@@ -293,9 +283,8 @@ static void
 del_ul_pcc_entry_key_with_idx(struct dp_session_info *data, uint32_t idx)
 {
 	int ret;
-	struct dl_bm_key dl_key;
 	struct ul_bm_key ul_key;
-	struct dp_sdf_per_bearer_info *psdf;
+	struct dp_sdf_per_bearer_info *psdf = NULL;
 
 	ul_key.s1u_sgw_teid = data->ul_s1_info.sgw_teid;
 	ul_key.rid = data->ul_pcc_rule_id[idx];
@@ -323,15 +312,7 @@ del_ul_pcc_entry_key_with_idx(struct dp_session_info *data, uint32_t idx)
 	if (ret < 0)
 		rte_panic("Failed to del entry from hash table");
 
-
-	/* look for sdf per bearer info in downlink hash */
-	dl_key.ue_ipv4 = data->ue_addr.u.ipv4_addr;
-	dl_key.rid = data->dl_pcc_rule_id[idx];
-	if (rte_hash_lookup_data(rte_downlink_hash, &dl_key,
-			(void **)&psdf) < 0) {
-		/* remove sdf per bearer info if not present in downlink hash */
-		rte_free(psdf);
-	}
+	rte_free(psdf);
 }
 
 /**
@@ -345,10 +326,9 @@ add_dl_pcc_entry_key_with_idx(struct dp_session_info *old,
 {
 	int ret;
 	struct dl_bm_key dl_key;
-	struct ul_bm_key ul_key;
 	struct dp_pcc_rules *pcc_info = NULL;
 	uint32_t pcc_id;
-	struct dp_sdf_per_bearer_info *psdf;
+	struct dp_sdf_per_bearer_info *psdf = NULL;
 
 	pcc_id = data->dl_pcc_rule_id[idx];
 	if (pcc_id == 0)
@@ -367,24 +347,15 @@ add_dl_pcc_entry_key_with_idx(struct dp_session_info *old,
 			rte_panic("Failed to add rating group to index map");
 	}
 
-	/* look for previously allocated sdf per bearer info in uplink hash */
-	ul_key.s1u_sgw_teid = data->ul_s1_info.sgw_teid;
-	ul_key.rid = pcc_id;
-	if (rte_hash_lookup_data(rte_uplink_hash, &ul_key,
-			(void **)&psdf) < 0) {
-		/* alloc memory for per sdf per bearer info */
-		psdf = rte_zmalloc("sdf per bearer",
-				sizeof(struct dp_sdf_per_bearer_info),
-				RTE_CACHE_LINE_SIZE);
-		if (psdf == NULL) {
-			RTE_LOG(ERR, DP, "Failed to allocate memory for sdf "
-					"per bearer info");
-			return;
-		}
-
-		psdf->pcc_info = *pcc_info;
-		psdf->bear_sess_info = old;
+	/* alloc memory for per sdf per bearer info */
+	psdf = rte_zmalloc("sdf per bearer", sizeof(struct dp_sdf_per_bearer_info),
+			RTE_CACHE_LINE_SIZE);
+	if (psdf == NULL) {
+		RTE_LOG(ERR, DP, "Failed to allocate memory for sdf per bearer info");
+		return ;
 	}
+	psdf->pcc_info = *pcc_info;
+	psdf->bear_sess_info = old;
 
 #ifdef SDF_MTR
 	mtr_cfg_entry(pcc_info->qos.dl_mtr_profile_index, &psdf->sdf_mtr_obj);
@@ -437,8 +408,7 @@ del_dl_pcc_entry_key_with_idx(struct dp_session_info *data, uint32_t idx)
 {
 	int ret;
 	struct dl_bm_key dl_key;
-	struct ul_bm_key ul_key;
-	struct dp_sdf_per_bearer_info *psdf;
+	struct dp_sdf_per_bearer_info *psdf = NULL;
 
 	dl_key.ue_ipv4 = data->ue_addr.u.ipv4_addr;
 	dl_key.rid = data->dl_pcc_rule_id[idx];
@@ -467,14 +437,7 @@ del_dl_pcc_entry_key_with_idx(struct dp_session_info *data, uint32_t idx)
 	flush_sdf_mtr(psdf, "DL-SDF");
 #endif
 
-	/* look for sdf per bearer info in uplink hash */
-	ul_key.s1u_sgw_teid = data->ul_s1_info.sgw_teid;
-	ul_key.rid = data->dl_pcc_rule_id[idx];
-	if (rte_hash_lookup_data(rte_uplink_hash, &ul_key,
-			(void **)&psdf) < 0) {
-		/* remove sdf per bearer info if not present in uplink hash */
-		rte_free(psdf);
-	}
+	rte_free(psdf);
 }
 
 /**
@@ -1064,6 +1027,7 @@ dp_session_modify(struct dp_id dp_id,
 
 	return 0;
 }
+
 /**
  * Flush CDR records of all the PCC rules for the given Bearer session,
  * into cdr cvs record file.
@@ -1073,7 +1037,6 @@ dp_session_modify(struct dp_id dp_id,
  * @return
  * Void
  */
-
 static void
 flush_session_pcc_records(struct dp_session_info *session)
 {
@@ -1127,6 +1090,58 @@ flush_session_pcc_records(struct dp_session_info *session)
 
 		export_session_pcc_record(&psdf->pcc_info, &psdf->sdf_cdr, session);
 	}
+}
+
+/**
+ * Flush CDR records of all the PCC rules for the given Bearer session,
+ * into cdr cvs record file.
+ * @param session
+ *	dp bearer session.
+ *
+ * @return
+ * Void
+ */
+static void
+flush_session_records(struct dp_session_info *session)
+{
+	uint32_t i;
+	struct ul_bm_key ul_key;
+	struct dl_bm_key dl_key;
+	struct dp_sdf_per_bearer_info *psdf = NULL;
+	struct dp_pcc_rules *pcc_info = NULL;
+
+	dl_key.ue_ipv4 = session->ue_addr.u.ipv4_addr;
+
+	for (i = 0; i < session->num_dl_pcc_rules; i++) {
+
+		dl_key.rid = session->dl_pcc_rule_id[i];
+		rte_hash_lookup_data(rte_downlink_hash, &dl_key, (void **)&psdf);
+
+		if (psdf == NULL) {
+			continue;
+		}
+
+		iface_lookup_pcc_data(psdf->sdf_cdr.charging_rule_id, &pcc_info);
+
+		if (pcc_info != NULL)
+			export_session_pcc_record(pcc_info, &psdf->sdf_cdr, session);
+	}
+
+	ul_key.s1u_sgw_teid = session->ul_s1_info.sgw_teid;
+	for (i = 0; i < session->num_ul_pcc_rules; i++) {
+		ul_key.rid = session->ul_pcc_rule_id[i];
+		rte_hash_lookup_data(rte_uplink_hash, &ul_key, (void **)&psdf);
+
+		if (psdf == NULL) {
+			continue;
+		}
+
+		iface_lookup_pcc_data(psdf->sdf_cdr.charging_rule_id, &pcc_info);
+
+		if (pcc_info != NULL)
+			export_session_pcc_record(pcc_info, &psdf->sdf_cdr, session);
+	}
+
 }
 
 /**
@@ -1194,6 +1209,7 @@ flush_apn_records(struct dp_session_info *session)
 	flush_apn_mtr(psdf);
 }
 #endif /* APN_MTR*/
+
 /**
  * Flush Bearer CDR records
  * into cvs file.
@@ -1359,7 +1375,8 @@ dp_session_delete(struct dp_id dp_id,
 #ifdef ADC_UPFRONT
 	flush_session_adc_records(data);
 #endif
-	flush_session_pcc_records(data);
+	/*flush_session_pcc_records(data);*/
+	flush_session_records(data);
 #ifdef APN_MTR
 	flush_apn_records(data);
 #endif /* APN_MTR*/

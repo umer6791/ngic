@@ -381,6 +381,7 @@ struct ipcan_dp_bearer_cdr {
 	uint32_t rating_group;			/* rating group of this bearer*/
 	uint64_t vol_threshold;			/* volume threshold in MBytes*/
 	struct chrg_data_vol data_vol;		/* charing per UE by volume*/
+	uint32_t charging_rule_id;			/* Charging Rule ID*/
 } __attribute__((packed, aligned(RTE_CACHE_LINE_SIZE)));
 
 

@@ -327,6 +327,9 @@ enum acl_cfg_tbl adc_ul_active_tbl = ADC_UL_ACTIVE, adc_dl_active_tbl = ADC_DL_A
 enum acl_cfg_tbl config_tbl;
 struct acl_rules_table acl_rules_table[MAX_PARAM];
 
+extern struct rte_hash *rte_sdf_pcc_hash;
+extern struct rte_hash *rte_adc_pcc_hash;
+
 #ifdef ACL_READ_CFG
 /* to read cfg file. */
 struct rte_acl_rule *acl_base_ipv4, *acl_base_ipv6;
@@ -1293,7 +1296,9 @@ reset_and_build_rules(enum acl_cfg_tbl type)
 static int
 dp_filter_entry_add(char *name, enum acl_cfg_tbl type, struct pkt_filter *pkt_filter)
 {
-	struct rte_acl_rule *next;
+	struct rte_acl_rule *next = NULL;
+	struct rte_hash *hash = NULL;
+	struct filter_pcc_data *pinfo = NULL;
 	uint32_t rule_id;
 
 	/* TODO: As precedence is no longer part of ADC & SDF, we are adding priority.
@@ -1301,7 +1306,7 @@ dp_filter_entry_add(char *name, enum acl_cfg_tbl type, struct pkt_filter *pkt_fi
 	 * Also what should be the maximum value of priority?
 	 * Currently only 255 is considered. Need to revisit.
 	 */
-	static uint8_t prio = 0;
+	uint8_t prio = 0;
 	char *buf;
 	if (pkt_filter == NULL)
 		rte_exit(EXIT_FAILURE, "%s:\n"
@@ -1311,6 +1316,27 @@ dp_filter_entry_add(char *name, enum acl_cfg_tbl type, struct pkt_filter *pkt_fi
 	rule_id = pkt_filter->pcc_rule_id;
 	if (rule_id == SDF_DEFAULT_DROP_RULE_ID)
 		prio = 0;
+
+	if (!strcmp("SDF", name))
+		hash = rte_sdf_pcc_hash;
+	else
+		hash = rte_adc_pcc_hash;
+
+	if(NULL != hash){
+		int ret = rte_hash_lookup_data(hash, &rule_id, (void **)&pinfo);
+
+		if (ret < 0 || NULL == pinfo) {
+				/* If there is no matching pcc rule, what should be
+				 * values of pcc? Currently hardcoding to 1 with
+				 * gate-status 1 (pass traffic) : Default policy in pcc
+				 */
+				prio = 0;
+
+			} else {
+
+				prio = (255 - pinfo->pcc_info[0].precedence);
+		}
+	}
 
 	buf = (char *)&pkt_filter->u.rule_str[0];
 
@@ -1322,7 +1348,7 @@ dp_filter_entry_add(char *name, enum acl_cfg_tbl type, struct pkt_filter *pkt_fi
 				__func__);
 
 	next->data.userdata = rule_id + ACL_DENY_SIGNATURE;
-	next->data.priority = prio--;
+	next->data.priority = prio;
 	next->data.category_mask = -1;
 		if (dp_rules_entry_add(&acl_rules_table[type/2], (struct acl4_rule *)next) < 0)
 			return -1;

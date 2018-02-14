@@ -75,6 +75,16 @@ uint64_t ebs;
 uint16_t ulambr_idx;
 uint16_t dlambr_idx;
 
+static uint32_t name_to_num(const char *name)
+{
+	uint32_t num = 0;
+	int i;
+
+	for (i = strlen(name) - 1; i >= 0; i--)
+		num = (num << 4) | (name[i] - 'a');
+	return num;
+}
+
 int
 get_packet_filter_id(const pkt_fltr *pf)
 {
@@ -364,7 +374,7 @@ init_sdf_rules(void)
 
 	num_sdf_rules = atoi(entry);
 
-	for (i = 0; i <= num_sdf_rules; ++i) {
+	for (i = 1; i <= num_sdf_rules; ++i) {
 		char sectionname[64] = {0};
 		int ret = 0;
 		struct in_addr tmp_addr;
@@ -376,12 +386,18 @@ init_sdf_rules(void)
 
 		entry = rte_cfgfile_get_entry(file, sectionname, "DIRECTION");
 		if (entry) {
-			if (strcmp(entry, "bidirectional") == 0)
+			if (strcmp(entry, "bidirectional") == 0){
 				pf.direction = TFT_DIRECTION_BIDIRECTIONAL;
+				rte_panic("Invalid SDF direction. Supported : uplink_only,"
+						"downlink_only\n");
+			}
 			else if (strcmp(entry, "uplink_only") == 0)
 				pf.direction = TFT_DIRECTION_UPLINK_ONLY;
 			else if (strcmp(entry, "downlink_only") == 0)
 				pf.direction = TFT_DIRECTION_DOWNLINK_ONLY;
+			else
+				rte_panic("Invalid SDF direction. Supported : uplink_only,"
+						"downlink_only\n");
 		}
 
 		entry = rte_cfgfile_get_entry(file, sectionname, "IPV4_REMOTE");
@@ -398,13 +414,17 @@ init_sdf_rules(void)
 			ret = inet_aton(entry, &tmp_addr);
 			if (ret == 0
 			    || __builtin_clzl(~tmp_addr.s_addr)
-				+ __builtin_ctzl(tmp_addr.s_addr) != 32)
-				rte_panic("Invalid address %s in section %s "
+				+ __builtin_ctzl(tmp_addr.s_addr) != 32){
+				/*rte_panic("Invalid address %s in section %s "
 						"sdf config file %s\n",
+						entry, sectionname, SDF_RULE_FILE);*/
+				fprintf(stderr, "Invalid address %s in section %s "
+						"sdf config file %s. Setting to default 32.\n",
 						entry, sectionname, SDF_RULE_FILE);
-
-			pf.remote_ip_mask =
-					__builtin_popcountl(tmp_addr.s_addr);
+				 pf.remote_ip_mask = 32;
+			} else
+				pf.remote_ip_mask =
+						__builtin_popcountl(tmp_addr.s_addr);
 		}
 
 		entry = rte_cfgfile_get_entry(file, sectionname,
@@ -437,12 +457,16 @@ init_sdf_rules(void)
 			ret = inet_aton(entry, &tmp_addr);
 			if (ret == 0
 			    || __builtin_clzl(~tmp_addr.s_addr)
-			    + __builtin_ctzl(tmp_addr.s_addr) != 32)
-				rte_panic("Invalid address %s in section %s "
+			    + __builtin_ctzl(tmp_addr.s_addr) != 32){
+				/*rte_panic("Invalid address %s in section %s "
 						"sdf config file %s\n",
+						entry, sectionname, SDF_RULE_FILE);*/
+				fprintf(stderr, "Invalid address %s in section %s "
+						"sdf config file %s. Setting to default 32.\n",
 						entry, sectionname, SDF_RULE_FILE);
-
-			pf.local_ip_mask = __builtin_popcountl(tmp_addr.s_addr);
+				pf.remote_ip_mask = 32;
+			} else
+				pf.local_ip_mask = __builtin_popcountl(tmp_addr.s_addr);
 		}
 
 		entry = rte_cfgfile_get_entry(file, sectionname,
@@ -495,7 +519,7 @@ init_pcc_rules(void)
 		rte_panic("Invalid AMBR configuration file format\n");
 	dlambr_idx = atoi(entry);
 
-	for (i = 0; i <= num_pcc_rules; ++i) {
+	for (i = 1; i <= num_pcc_rules; ++i) {
 		char sectionname[64] = {0};
 		int ret = 0;
 		struct pcc_rules tmp_pcc = {0};
@@ -513,10 +537,16 @@ init_pcc_rules(void)
 			    "Invalid pcc configuration file format - "
 			    "each filter must contain RATING_GROUP entry\n");
 		tmp_pcc.rating_group = atoi(entry);
+		if(0 == tmp_pcc.rating_group) {
+			tmp_pcc.rating_group = name_to_num(entry);
+		}
 
 		entry = rte_cfgfile_get_entry(file, sectionname, "SERVICE_ID");
-		if (entry)
+		if (entry) {
 			tmp_pcc.service_id = atoi(entry);
+			if(0 == tmp_pcc.service_id)
+				tmp_pcc.service_id = name_to_num(entry);
+		}
 
 		entry = rte_cfgfile_get_entry(file, sectionname, "RULE_STATUS");
 		if (entry)
@@ -630,9 +660,6 @@ init_pcc_rules(void)
 void
 init_packet_filters(void)
 {
-	/* init dpn meter profile table before configuring pcc/adc rules*/
-	init_mtr_profile();
-
 	/* init pcc rule tables on dp*/
 	init_pcc_rules();
 	/*TODO: As workaround adding sleep before pushing SDF rules. Otherwise
@@ -640,6 +667,9 @@ init_packet_filters(void)
 	 * Need to debug and fix.
 	 **/
 	sleep(1);
+
+	/* init dpn meter profile table before configuring pcc/adc rules*/
+	init_mtr_profile();
 
 	/* init dpn sdf rules table configuring on dp*/
 	init_sdf_rules();
@@ -687,7 +717,7 @@ parse_adc_rules(void)
 
 	num_adc_rules = atoi(entry);
 
-	for (i = 0; i < num_adc_rules; ++i) {
+	for (i = 1; i <= num_adc_rules; ++i) {
 		char sectionname[64] = {0};
 		struct adc_rules tmp_adc = { 0 };
 		struct in_addr addr;

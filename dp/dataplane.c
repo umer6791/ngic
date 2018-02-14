@@ -34,6 +34,7 @@
 #include "util.h"
 #include "meter.h"
 #include "acl.h"
+#include "cdr.h"
 #include <sponsdn.h>
 #include <stdbool.h>
 
@@ -414,7 +415,7 @@ get_pcc_info(void **sess_info, uint32_t n, void **pcc_info)
 
 void
 pcc_gating(struct pcc_id_precedence *sdf_info, struct pcc_id_precedence *adc_info,
-	uint32_t n, uint64_t *pkts_mask)
+	uint32_t n, uint64_t *pkts_mask, uint32_t *pcc_id)
 {
 	uint32_t i;
 
@@ -424,11 +425,12 @@ pcc_gating(struct pcc_id_precedence *sdf_info, struct pcc_id_precedence *adc_inf
 			if (sdf_info[i].gate_status == CLOSE) {
 				RESET_BIT(*pkts_mask, i);
 			}
-
+			pcc_id[i] = sdf_info[i].pcc_id;
 		} else {
 			if (adc_info[i].gate_status == CLOSE) {
 				RESET_BIT(*pkts_mask, i);
 			}
+			pcc_id[i] = adc_info[i].pcc_id;
 		}
 	}
 }
@@ -486,14 +488,16 @@ update_cdr(struct ipcan_dp_bearer_cdr *cdr, struct rte_mbuf *pkt,
 				uint32_t flow, enum pkt_action_t action)
 {
 	uint32_t charged_len;
-	struct ipv4_hdr *ip_h;
+	struct ipv4_hdr *ip_h = NULL;
 
 	ip_h = rte_pktmbuf_mtod_offset(pkt, struct ipv4_hdr *,
 			sizeof(struct ether_hdr));
+
 	charged_len =
 			RTE_MIN(rte_pktmbuf_pkt_len(pkt) -
 					sizeof(struct ether_hdr),
 					ntohs(ip_h->total_length));
+
 	if (action == CHARGED) {
 		if (flow == UL_FLOW) {
 			cdr->data_vol.ul_cdr.bytes += charged_len;
@@ -576,6 +580,30 @@ update_sdf_cdr(void **adc_ue_info,
 }
 
 void
+update_pcc_cdr(struct dp_sdf_per_bearer_info **sdf_bear_info,
+		struct rte_mbuf **pkts, uint32_t n, uint64_t *pkts_mask,
+		uint32_t *pcc_rule, uint32_t flow)
+{
+	uint32_t i;
+	struct dp_sdf_per_bearer_info *psdf = NULL;
+
+	for (i = 0; i < n; i++) {
+		psdf = sdf_bear_info[i];
+		if (NULL == psdf)
+			continue;
+
+		if (psdf->sdf_cdr.charging_rule_id == 0) {
+			psdf->sdf_cdr.charging_rule_id = pcc_rule[i];
+		}
+
+		if (ISSET_BIT(*pkts_mask, i))
+			update_cdr(&psdf->sdf_cdr, pkts[i], flow, CHARGED);
+		else
+			update_cdr(&psdf->sdf_cdr, pkts[i], flow, DROPPED);
+	}
+}
+
+void
 update_bear_cdr(struct dp_sdf_per_bearer_info **sdf_bear_info,
 		struct rte_mbuf **pkts, uint32_t n,
 		uint64_t *pkts_mask, uint32_t flow)
@@ -635,6 +663,41 @@ update_rating_grp_cdr(void **sess_info, uint32_t **rgrp,
 			update_cdr(&si->ue_info_ptr->rating_grp[rg_idx],
 					pkts[i], flow, DROPPED);
 	}	/* for (i = 0; i < n; i++)*/
+}
+
+void
+update_extended_cdr(struct rte_mbuf **pkts, uint32_t n,
+		uint64_t *pkts_mask, uint64_t *non_gtp_pkts_mask, uint32_t *pcc_rule,
+		uint32_t direction)
+{
+	uint32_t i;
+	struct dp_pcc_rules *pcc_info = NULL;
+
+	for (i = 0; i < n; i++) {
+		struct ether_hdr *eth_hdr = rte_pktmbuf_mtod(pkts[i], void *);
+		struct ipv4_hdr *ipv4_hdr = (struct ipv4_hdr *)&eth_hdr[1];
+
+		struct in_addr sip_addr;
+		struct in_addr dip_addr;
+		char sip[INET_ADDRSTRLEN] = {0};
+		char dip[INET_ADDRSTRLEN] = {0};
+
+		/*Do not add GTPU Echo and other non-gtp packets in extended cdr*/
+		if(!ISSET_BIT(*non_gtp_pkts_mask, i)) continue;
+
+		pcc_info = NULL;
+
+		sip_addr.s_addr = ipv4_hdr->src_addr;
+		dip_addr.s_addr = ipv4_hdr->dst_addr;
+
+		strncpy(sip, inet_ntoa(sip_addr), INET_ADDRSTRLEN);
+		strncpy(dip, inet_ntoa(dip_addr), INET_ADDRSTRLEN);
+
+		iface_lookup_pcc_data(pcc_rule[i], &pcc_info);
+
+		if (NULL != pcc_info)
+			export_extended_cdr(sip, dip, ISSET_BIT(*pkts_mask, i), pcc_info, direction);
+	}
 }
 
 void

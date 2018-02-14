@@ -107,4 +107,20 @@ int encap_gtpu_hdr(struct rte_mbuf *m, uint32_t teid);
  */
 uint32_t gtpu_inner_src_ip(struct rte_mbuf *m);
 
+/**
+ * Function to get inner src and dst ip of tunneled packet.
+ *
+ * @param m
+ *	mbuf of the incoming packet.
+ * @param src_ip
+ *	source ip.
+ * @param dst_ip
+ *	destination ip.
+ *
+ * @return
+ *	 inner dst ip
+ */
+void
+gtpu_get_inner_src_dst_ip(struct rte_mbuf *m,
+		uint32_t *src_ip, uint32_t *dst_ip);
 #endif	/* _GTPU_H_ */

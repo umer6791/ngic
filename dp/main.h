@@ -688,13 +688,15 @@ dl_sess_info_get(struct rte_mbuf **pkts, uint32_t n,
  *	number of pkts.
  * @param  pkts_mask
  *	bit mask to process the pkts, reset bit to free the pkt.
+ * @param  pcc_id
+ *	array of pcc id.
  *
  * @return
  * Void
  */
 void
 pcc_gating(struct pcc_id_precedence *sdf_info, struct pcc_id_precedence *adc_info,
-		uint32_t n, uint64_t *pkts_mask);
+		uint32_t n, uint64_t *pkts_mask, uint32_t *pcc_id);
 /**
  * Get ADC filter entry.
  * @param rid
@@ -826,6 +828,29 @@ update_sdf_cdr(void **adc_ue_info,
 		uint64_t *adc_pkts_mask, uint64_t *pkts_mask, uint32_t flow);
 
 /**
+ * Update CDR records.
+ * @param sess_info
+ *	list of per sdf bearer structs pointer.
+ * @param  pkts
+ *	mbuf pkts.
+ * @param  n
+ *	number of pkts.
+ * @param  pkts_mask
+ *	bit mask to process the pkts, reset bit to free the pkt.
+ * @param  pcc_rule
+ *	array of pcc_rule id.
+ * @param  flow
+ *	direction of flow (UL_FLOW, DL_FLOW).
+ *
+ * @return
+ * Void
+ */
+void
+update_pcc_cdr(struct dp_sdf_per_bearer_info **sdf_bear_info,
+		struct rte_mbuf **pkts, uint32_t n, uint64_t *pkts_mask,
+		uint32_t *pcc_rule, uint32_t flow);
+
+/**
  * Update CDR records of bearer.
  * @param sess_info
  *	list of per sdf bearer structs pointer.
@@ -868,6 +893,26 @@ void
 update_rating_grp_cdr(void **sess_info, uint32_t **rgrp,
 		struct rte_mbuf **pkts, uint32_t n,
 		uint64_t *pkts_mask, uint32_t flow);
+
+/**
+ * Update Extended CDR records.
+ * @param  pkts
+ *	mbuf pkts.
+ * @param  n
+ *	number of pkts.
+ * @param  pkts_mask
+ *	bit mask to process the pkts, reset bit to free the pkt.
+ * @param  pcc_rule
+ *	array of pcc_rule id.
+ *
+ * @return
+ * void
+ */
+void
+update_extended_cdr(struct rte_mbuf **pkts, uint32_t n,
+		uint64_t *pkts_mask, uint64_t *non_gtp_pkts_mask, uint32_t *pcc_rule,
+		uint32_t direction);
+
 /**
  * Get APN Meter profile index.
  * @param sess_info
