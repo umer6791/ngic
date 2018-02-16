@@ -30,6 +30,8 @@ struct parse_modify_bearer_request_t {
 };
 extern uint32_t num_adc_rules;
 extern uint32_t adc_rule_id[];
+extern struct response_info resp_t;
+
 /**
  * parses gtpv2c message and populates  parse_modify_bearer_request_t structure
  * @param gtpv2c_rx
@@ -139,7 +141,7 @@ parse_modify_bearer_request(gtpv2c_header *gtpv2c_rx,
  * @param bearer
  *   bearer data structure to be modified
  */
-static void
+void
 set_modify_bearer_response(gtpv2c_header *gtpv2c_tx,
 		uint32_t sequence, ue_context *context, eps_bearer *bearer)
 {
@@ -194,8 +196,19 @@ process_modify_bearer_request(gtpv2c_header *gtpv2c_rx,
 			*IE_TYPE_PTR_FROM_GTPV2C_IE(
 	    uint8_t, modify_bearer_request.bearer_context_to_be_created_ebi);
 
+#ifndef SDN_ODL_BUILD
 	set_modify_bearer_response(gtpv2c_tx, gtpv2c_rx->teid_u.has_teid.seq,
 	    modify_bearer_request.context, modify_bearer_request.bearer);
+#else
+	/*Set modify bearer response*/
+	resp_t.gtpv2c_tx_t=*gtpv2c_tx;
+	resp_t.context_t=*(modify_bearer_request.context);
+	resp_t.bearer_t=*(modify_bearer_request.bearer);
+	resp_t.gtpv2c_tx_t.teid_u.has_teid.seq = gtpv2c_rx->teid_u.has_teid.seq;
+	resp_t.msg_type = GTP_MODIFY_BEARER_REQ;
+	/*TODO: Revisit this for to handle type received from message*/
+	/*resp_t.msg_type = gtpv2c_rx->gtpc.type;*/
+#endif
 
 	/* using the s1u_sgw_gtpu_teid as unique identifier to the session */
 	struct session_info session;

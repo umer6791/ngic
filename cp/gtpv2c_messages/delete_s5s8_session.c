@@ -23,6 +23,8 @@
 
 #define RTE_LOGTYPE_CP RTE_LOGTYPE_USER4
 
+extern struct response_info resp_t;
+
 /* PGWC S5S8 handlers:
  * static int delete_pgwc_context(...)
  * process_pgwc_s5s8_delete_session_request(...)
@@ -46,8 +48,8 @@
  *   \- < 0 for all other errors
  */
 static int
-delete_pgwc_context(gtpv2c_header *gtpv2c_rx, ue_context **_context,
-		uint32_t **del_teid_ptr)
+delete_pgwc_context(gtpv2c_header *gtpv2c_rx, gtpv2c_header *gtpv2c_tx,
+		ue_context **_context, uint32_t **del_teid_ptr)
 {
 	gtpv2c_ie *current_ie;
 	gtpv2c_ie *limit_ie;
@@ -151,6 +153,17 @@ delete_pgwc_context(gtpv2c_header *gtpv2c_rx, ue_context **_context,
 		return GTPV2C_CAUSE_MANDATORY_IE_INCORRECT;
 	}
 
+	gtpv2c_tx->teid_u.has_teid.seq = gtpv2c_rx->teid_u.has_teid.seq;
+
+#ifdef SDN_ODL_BUILD
+	/* set delete session response */
+	/*TODO: Revisit this for to handle type received from message*/
+	/*resp_t.msg_type = gtpv2c_rx->gtpc.type;*/
+	resp_t.msg_type = GTP_DELETE_SESSION_REQ;
+	resp_t.gtpv2c_tx_t = *gtpv2c_tx;
+	resp_t.s5s8_sgw_gtpc_del_teid_ptr = (uint32_t)**del_teid_ptr;
+#endif
+
 	for (i = 0; i < MAX_BEARERS; ++i) {
 		if (pdn->eps_bearers[i] == NULL)
 			continue;
@@ -197,15 +210,17 @@ process_pgwc_s5s8_delete_session_request(gtpv2c_header *gtpv2c_rx,
 	ue_context *context = NULL;
 	uint32_t *s5s8_sgw_gtpc_del_teid_ptr = NULL;
 
-	int ret = delete_pgwc_context(gtpv2c_rx, &context,
+	int ret = delete_pgwc_context(gtpv2c_rx, gtpv2c_tx, &context,
 					&s5s8_sgw_gtpc_del_teid_ptr);
 	if (ret)
 		return ret;
 
+#ifndef SDN_ODL_BUILD
 	set_gtpv2c_teid_header(gtpv2c_tx, GTP_DELETE_SESSION_RSP,
 				*s5s8_sgw_gtpc_del_teid_ptr,
 				gtpv2c_rx->teid_u.has_teid.seq);
 	set_cause_accepted_ie(gtpv2c_tx, IE_INSTANCE_ZERO);
+#endif
 
 	return 0;
 }
@@ -232,7 +247,8 @@ process_pgwc_s5s8_delete_session_request(gtpv2c_header *gtpv2c_rx,
  *   \- < 0 for all other errors
  */
 static int
-delete_sgwc_context(gtpv2c_header *gtpv2c_rx, ue_context **_context)
+delete_sgwc_context(gtpv2c_header *gtpv2c_rx, gtpv2c_header *gtpv2c_tx,
+					ue_context **_context)
 {
 	int ret;
 	int i;
@@ -269,6 +285,18 @@ delete_sgwc_context(gtpv2c_header *gtpv2c_rx, ue_context **_context)
 			gtpv2c_rx->teid_u.has_teid.teid,
 			ret);
 	pdn_connection *pdn_ctxt;
+
+	gtpv2c_tx->teid_u.has_teid.seq = gtpv2c_rx->teid_u.has_teid.seq;
+
+#ifdef SDN_ODL_BUILD
+	/*set the delete session response */
+	/*TODO: Revisit this for to handle type received from message*/
+	/*resp_t.msg_type = gtpv2c_rx->gtpc.type;*/
+	resp_t.msg_type = GTP_DELETE_SESSION_REQ;
+	resp_t.context_t = *context;
+	resp_t.gtpv2c_tx_t = *gtpv2c_tx;
+#endif
+
 	for (i = 0; i < MAX_BEARERS; ++i) {
 		if (context->pdns[i] == NULL)
 			continue;
@@ -340,13 +368,15 @@ process_sgwc_s5s8_delete_session_response(gtpv2c_header *gtpv2c_rx,
 	gtpv2c_header *gtpv2c_tx)
 {
 	ue_context *context = NULL;
-	int ret = delete_sgwc_context(gtpv2c_rx, &context);
+	int ret = delete_sgwc_context(gtpv2c_rx, gtpv2c_tx, &context);
 	if (ret)
 		return ret;
 
+#ifndef SDN_ODL_BUILD
 	set_gtpv2c_teid_header(gtpv2c_tx, GTP_DELETE_SESSION_RSP,
 	    context->s11_mme_gtpc_teid, gtpv2c_rx->teid_u.has_teid.seq);
 	set_cause_accepted_ie(gtpv2c_tx, IE_INSTANCE_ZERO);
+#endif
 
 	return 0;
 }

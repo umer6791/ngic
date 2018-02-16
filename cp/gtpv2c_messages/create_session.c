@@ -46,6 +46,7 @@ struct parse_create_session_request_t {
 
 extern uint32_t num_adc_rules;
 extern uint32_t adc_rule_id[];
+struct response_info resp_t;
 
 /**
  * parses gtpv2c message and populates parse_create_session_request_t structure
@@ -358,9 +359,24 @@ process_create_session_request(gtpv2c_header *gtpv2c_rx,
 		return ret;
 	}
 
+#ifndef SDN_ODL_BUILD
 	set_create_session_response(
 			gtpv2c_s11_tx, gtpv2c_rx->teid_u.has_teid.seq,
 			context, pdn, bearer);
+
+#else
+	/* Set create session response */
+	resp_t.gtpv2c_tx_t=*gtpv2c_s11_tx;
+	resp_t.context_t=*context;
+	resp_t.pdn_t=*pdn;
+	resp_t.bearer_t=*bearer;
+	resp_t.gtpv2c_tx_t.teid_u.has_teid.seq = gtpv2c_rx->teid_u.has_teid.seq;
+	resp_t.msg_type = GTP_CREATE_SESSION_REQ;
+	/*TODO: Revisit this for to handle type received from message*/
+	/*resp_t.msg_type = gtpv2c_rx->gtpc.type;*/
+
+#endif
+
 	RTE_LOG(DEBUG, CP, "NGIC- create_session.c::"
 			"\n\tprocess_create_session_request::case= %d;"
 			"\n\tprocess_spgwc_s11_cs_res_cnt= %u;"

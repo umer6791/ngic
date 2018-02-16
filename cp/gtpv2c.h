@@ -328,38 +328,6 @@ void
 dump_pcap(uint16_t payload_length, uint8_t *tx_buf);
 
 /**
- * Helper function to set the gtp header for a gtpv2c message.
- * @param gtpv2c_tx
- *   buffer used to contain gtp message for transmission
- * @param type
- *   gtp type according to 2gpp 29.274 table 6.1-1
- * @param has_teid
- *   boolean to indicate if the message requires the TEID field within the
- *   gtp header
- * @param seq
- *   sequence number as described by clause 7.6 3gpp 29.274
- */
-void
-set_gtpv2c_header(gtpv2c_header *gtpv2c_tx, uint8_t type,
-		uint8_t has_teid, uint32_t seq);
-
-/**
- * Helper function to set the gtp header for a gtpv2c message with the
- * TEID field.
- * @param gtpv2c_tx
- *   buffer used to contain gtp message for transmission
- * @param type
- *   gtp type according to 2gpp 29.274 table 6.1-1
- * @param teid
- *   GTP teid, or TEID-C, to be populated in the GTP header
- * @param seq
- *   sequence number as described by clause 7.6 3gpp 29.274
- */
-void
-set_gtpv2c_teid_header(gtpv2c_header *gtpv2c_tx, uint8_t type,
-		uint32_t teid, uint32_t seq);
-
-/**
  * Helper function to set the gtp header for a gtp echo message.
  * @param gtpv2c_tx
  *   buffer used to contain gtp message for transmission
@@ -693,4 +661,13 @@ int
 create_downlink_data_notification(ue_context *context, uint8_t eps_bearer_id,
 		uint32_t sequence, gtpv2c_header *gtpv2c_tx);
 
+/**
+ * @brief
+ * Util to send or dump gtpv2c messages
+ */
+
+void
+gtpv2c_send(int gtpv2c_if_fd, uint8_t *gtpv2c_tx_buf,
+		uint16_t gtpv2c_pyld_len, struct sockaddr *dest_addr,
+		socklen_t dest_addr_len);
 #endif /* GTPV2C_H */

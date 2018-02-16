@@ -48,6 +48,7 @@ struct parse_pgwc_s5s8_create_session_request_t {
 
 extern uint32_t num_adc_rules;
 extern uint32_t adc_rule_id[];
+extern struct response_info resp_t;
 
 /**
  * parses gtpv2c message and populates parse_pgwc_s5s8_create_session_request_t structure
@@ -165,7 +166,7 @@ parse_pgwc_s5s8_create_session_request(gtpv2c_header *gtpv2c_rx,
  * @param bearer
  *   Default EPS Bearer corresponding to the PDN Connection to be created
  */
-static void
+void
 set_pgwc_s5s8_create_session_response(gtpv2c_header *gtpv2c_tx,
 		uint32_t sequence, pdn_connection *pdn,
 		eps_bearer *bearer)
@@ -299,8 +300,22 @@ process_pgwc_s5s8_create_session_request(gtpv2c_header *gtpv2c_rx,
 		bearer->pdn = pdn;
 	}
 
+#ifndef SDN_ODL_BUILD
 	set_pgwc_s5s8_create_session_response(gtpv2c_s5s8_tx,
 			gtpv2c_rx->teid_u.has_teid.seq, pdn, bearer);
+
+#else
+	/* set create session response */
+	resp_t.gtpv2c_tx_t=*gtpv2c_s5s8_tx;
+	resp_t.context_t=*context;
+	resp_t.pdn_t=*pdn;
+	resp_t.bearer_t=*bearer;
+	resp_t.gtpv2c_tx_t.teid_u.has_teid.seq = gtpv2c_rx->teid_u.has_teid.seq;
+	resp_t.msg_type = GTP_CREATE_SESSION_REQ;
+	/*TODO: Revisit this for to handle type received from message*/
+	/*resp_t.msg_type = gtpv2c_rx->gtpc.type;*/
+
+#endif
 
 	/* using the s1u_sgw_gtpu_teid as unique identifier to the session */
 	struct session_info session;
@@ -626,9 +641,23 @@ process_sgwc_s5s8_create_session_response(gtpv2c_header *gtpv2c_s5s8_rx,
 		bearer->pdn = pdn;
 	}
 
+#ifndef SDN_ODL_BUILD
 	set_create_session_response(
 			gtpv2c_s11_tx, gtpv2c_s5s8_rx->teid_u.has_teid.seq,
 			context, pdn, bearer);
+#else
+	/* set create session response. */
+	resp_t.gtpv2c_tx_t=*gtpv2c_s11_tx;
+	resp_t.context_t=*context;
+	resp_t.pdn_t=*pdn;
+	resp_t.bearer_t=*bearer;
+	resp_t.gtpv2c_tx_t.teid_u.has_teid.seq = gtpv2c_s5s8_rx->teid_u.has_teid.seq;
+	resp_t.msg_type = GTP_CREATE_SESSION_REQ;
+	/*TODO: Revisit this for to handle type received from message*/
+	/*resp_t.msg_type = gtpv2c_s5s8_rx->gtpc.type;*/
+
+#endif
+
 	RTE_LOG(DEBUG, CP, "NGIC- create_s5s8_session.c::"
 			"\n\tprocess_sgwc_s5s8_cs_rsp_cnt= %u;"
 			"\n\tprocess_spgwc_s11_cs_res_cnt= %u;"

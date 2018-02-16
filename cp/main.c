@@ -458,7 +458,7 @@ init_cp(void)
  * @brief
  * Util to send or dump gtpv2c messages
  */
-static void
+void
 gtpv2c_send(int gtpv2c_if_fd, uint8_t *gtpv2c_tx_buf,
 		uint16_t gtpv2c_pyld_len, struct sockaddr *dest_addr,
 		socklen_t dest_addr_len)
@@ -529,6 +529,10 @@ dump_pcap(uint16_t payload_length, uint8_t *tx_buf)
 	fflush(pcap_dump_file(pcap_dumper));
 }
 
+socklen_t s11_mme_sockaddr_len = sizeof(s11_mme_sockaddr);
+socklen_t s5s8_sgwc_sockaddr_len = sizeof(s5s8_sgwc_sockaddr);
+socklen_t s5s8_pgwc_sockaddr_len = sizeof(s5s8_pgwc_sockaddr);
+
 void
 control_plane(void)
 {
@@ -542,9 +546,6 @@ control_plane(void)
 	gtpv2c_header *gtpv2c_s5s8_tx = (gtpv2c_header *) s5s8_tx_buf;
 
 	uint16_t payload_length;
-	socklen_t s11_mme_sockaddr_len = sizeof(s11_mme_sockaddr);
-	socklen_t s5s8_sgwc_sockaddr_len = sizeof(s5s8_sgwc_sockaddr);
-	socklen_t s5s8_pgwc_sockaddr_len = sizeof(s5s8_pgwc_sockaddr);
 
 	uint8_t delay = 0; /*TODO move this when more implemented?*/
 	int bytes_pcap_rx = 0;
@@ -729,12 +730,14 @@ control_plane(void)
 						inet_ntoa(s11_mme_sockaddr.sin_addr),
 						s11_mme_sockaddr_len,
 						ntohs(s11_mme_sockaddr.sin_port));
+#ifndef SDN_ODL_BUILD
 				/* Note: s11_tx_buf should be prepared by call to:
 				 * process_sgwc_s5s8_create_session_response
 				 */
 				gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
 						(struct sockaddr *) &s11_mme_sockaddr,
 						s11_mme_sockaddr_len);
+#endif
 				s11_msgcnt++;
 				break;
 			case GTP_DELETE_SESSION_RSP:
@@ -764,12 +767,14 @@ control_plane(void)
 						inet_ntoa(s11_mme_sockaddr.sin_addr),
 						s11_mme_sockaddr_len,
 						ntohs(s11_mme_sockaddr.sin_port));
+#ifndef SDN_ODL_BUILD
 				/* Note: s11_tx_buf should be prepared by call to:
 				 * process_sgwc_s5s8_delete_session_response
 				 */
 				gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
 						(struct sockaddr *) &s11_mme_sockaddr,
 						s11_mme_sockaddr_len);
+#endif
 				s11_msgcnt++;
 				break;
 			default:
@@ -812,9 +817,11 @@ control_plane(void)
 						inet_ntoa(s5s8_sgwc_sockaddr.sin_addr),
 						s5s8_sgwc_sockaddr_len,
 						ntohs(s5s8_sgwc_sockaddr.sin_port));
+#ifndef SDN_ODL_BUILD
 				gtpv2c_send(s5s8_pgwc_fd, s5s8_tx_buf, payload_length,
 						(struct sockaddr *) &s5s8_sgwc_sockaddr,
 						s5s8_sgwc_sockaddr_len);
+#endif
 				s5s8_pgwc_msgcnt++;
 				break;
 			case GTP_DELETE_SESSION_REQ:
@@ -842,9 +849,11 @@ control_plane(void)
 						inet_ntoa(s5s8_sgwc_sockaddr.sin_addr),
 						s5s8_sgwc_sockaddr_len,
 						ntohs(s5s8_sgwc_sockaddr.sin_port));
+#ifndef SDN_ODL_BUILD
 				gtpv2c_send(s5s8_pgwc_fd, s5s8_tx_buf, payload_length,
 						(struct sockaddr *) &s5s8_sgwc_sockaddr,
 						s5s8_sgwc_sockaddr_len);
+#endif
 				s5s8_pgwc_msgcnt++;
 				break;
 			default:
@@ -895,13 +904,17 @@ control_plane(void)
 							(struct sockaddr *) &s5s8_pgwc_sockaddr,
 							s5s8_pgwc_sockaddr_len);
 					s5s8_sgwc_msgcnt++;
-				} else if (spgw_cfg == SPGWC) {
+				}
+
+#ifndef SDN_ODL_BUILD
+				if (spgw_cfg == SPGWC) {
 					payload_length = ntohs(gtpv2c_s11_tx->gtpc.length)
 							+ sizeof(gtpv2c_s11_tx->gtpc);
 					gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
 							(struct sockaddr *) &s11_mme_sockaddr,
 							s11_mme_sockaddr_len);
 				}
+#endif
 				break;
 
 			case GTP_DELETE_SESSION_REQ:
@@ -935,13 +948,17 @@ control_plane(void)
 							(struct sockaddr *) &s5s8_pgwc_sockaddr,
 							s5s8_pgwc_sockaddr_len);
 					s5s8_sgwc_msgcnt++;
-				} else if (spgw_cfg == SPGWC) {
+				}
+
+#ifndef SDN_ODL_BUILD
+				if (spgw_cfg == SPGWC) {
 					payload_length = ntohs(gtpv2c_s11_tx->gtpc.length)
 							+ sizeof(gtpv2c_s11_tx->gtpc);
 					gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
 							(struct sockaddr *) &s11_mme_sockaddr,
 							s11_mme_sockaddr_len);
 				}
+#endif
 				break;
 
 			case GTP_MODIFY_BEARER_REQ:
@@ -957,11 +974,14 @@ control_plane(void)
 					/* Error handling not implemented */
 					return;
 				}
+
+#ifndef SDN_ODL_BUILD
 				payload_length = ntohs(gtpv2c_s11_tx->gtpc.length)
 						+ sizeof(gtpv2c_s11_tx->gtpc);
 				gtpv2c_send(s11_fd, s11_tx_buf, payload_length,
 						(struct sockaddr *) &s11_mme_sockaddr,
 						s11_mme_sockaddr_len);
+#endif
 				break;
 
 			case GTP_RELEASE_ACCESS_BEARERS_REQ:

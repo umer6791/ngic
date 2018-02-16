@@ -22,6 +22,8 @@
 
 #define RTE_LOGTYPE_CP RTE_LOGTYPE_USER4
 
+extern struct response_info resp_t;
+
 /**
  * Parses delete session request message and handles the removal of
  * corresponding data structures internal to the control plane - as well as
@@ -37,7 +39,8 @@
  *   \- < 0 for all other errors
  */
 static int
-delete_context(gtpv2c_header *gtpv2c_rx, ue_context **_context)
+delete_context(gtpv2c_header *gtpv2c_rx, gtpv2c_header *gtpv2c_tx,
+				ue_context **_context)
 {
 	gtpv2c_ie *current_ie;
 	gtpv2c_ie *limit_ie;
@@ -52,7 +55,6 @@ delete_context(gtpv2c_header *gtpv2c_rx, ue_context **_context)
 
 	if (ret < 0 || !context)
 		return GTPV2C_CAUSE_CONTEXT_NOT_FOUND;
-
 
 	/** TODO: we should verify mandatory fields within received message */
 	FOR_EACH_GTPV2C_IE(gtpv2c_rx, current_ie, limit_ie)
@@ -108,6 +110,17 @@ delete_context(gtpv2c_header *gtpv2c_rx, ue_context **_context)
 				"default EBI\n");
 		return GTPV2C_CAUSE_MANDATORY_IE_INCORRECT;
 	}
+
+	gtpv2c_tx->teid_u.has_teid.seq = gtpv2c_rx->teid_u.has_teid.seq;
+
+#ifdef SDN_ODL_BUILD
+	/*set the delete session response */
+	/*TODO: Revisit this for to handle type received from message*/
+	/*resp_t.msg_type = gtpv2c_rx->gtpc.type;*/
+	resp_t.msg_type = GTP_DELETE_SESSION_REQ;
+	resp_t.context_t = *context;
+	resp_t.gtpv2c_tx_t = *gtpv2c_tx;
+#endif
 
 	for (i = 0; i < MAX_BEARERS; ++i) {
 		if (pdn->eps_bearers[i] == NULL)
@@ -211,13 +224,15 @@ process_delete_session_request(gtpv2c_header *gtpv2c_rx,
 		return ret;
 	}
 
-	ret = delete_context(gtpv2c_rx, &context);
+	ret = delete_context(gtpv2c_rx, gtpv2c_s11_tx, &context);
 	if (ret)
 		return ret;
 
+#ifndef SDN_ODL_BUILD
 	set_gtpv2c_teid_header(gtpv2c_s11_tx, GTP_DELETE_SESSION_RSP,
 	    context->s11_mme_gtpc_teid, gtpv2c_rx->teid_u.has_teid.seq);
 	set_cause_accepted_ie(gtpv2c_s11_tx, IE_INSTANCE_ZERO);
+#endif
 
 	return 0;
 }

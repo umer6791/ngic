@@ -50,6 +50,8 @@
 #include "cp_stats.h"
 #include "packet_filters.h"
 #include "cp_stats.h"
+#include "gtpv2c_set_ie.h"
+#include "gtpv2c.h"
 
 
 #define MESSAGE_BUFFER_SIZE (1 << 13)
@@ -75,6 +77,12 @@
 #endif
 
 struct rte_hash *nb_op_id_hash;
+
+extern struct response_info resp_t;
+extern socklen_t s11_mme_sockaddr_len;
+extern socklen_t s5s8_pgwc_sockaddr_len;
+
+
 uint64_t op_id;
 
 char *client_id;
@@ -370,20 +378,47 @@ add_nb_op_id_hash(void)
 {
 	int ret;
 
-	ret = rte_hash_add_key_data(nb_op_id_hash, (void *)&op_id, NULL);
-	if (ret) {
-		fprintf(stderr, "rte_hash_add_key_data failed for"
-				" op_id %"PRIu64": %s (%u)\n",
-				op_id, rte_strerror(abs(ret)), ret);
-	} else {
-		++cp_stats.nb_sent;
+	switch (resp_t.msg_type) {
+		case GTP_CREATE_SESSION_REQ:
+		case GTP_MODIFY_BEARER_REQ:
+		case GTP_DELETE_SESSION_REQ: {
+			struct response_info *tmp = rte_zmalloc("test",
+					sizeof(struct response_info),
+					RTE_CACHE_LINE_SIZE);
+
+			if (NULL == tmp)
+				rte_panic("Failure to allocate create session buffer: "
+						"%s (%s:%d)\n", rte_strerror(rte_errno),
+						__FILE__,
+						__LINE__);
+
+			memcpy(tmp, &resp_t, sizeof(struct response_info));
+
+			ret = rte_hash_add_key_data(nb_op_id_hash, (void *)&op_id,
+					(void *)tmp);
+			if (ret) {
+				fprintf(stderr, "rte_hash_add_key_data failed for"
+						" op_id %"PRIu64": %s (%u)\n",
+						op_id, rte_strerror(abs(ret)), ret);
+			}
+			break;
+		}
+
+		default:
+			/*Adding entry for received entry for unknown request for now.
+			 * For future reference*/
+			ret = rte_hash_add_key_data(nb_op_id_hash, (void *)&op_id, NULL);
+			if (ret) {
+				fprintf(stderr, "rte_hash_add_key_data failed for"
+						" op_id %"PRIu64": %s (%u)\n",
+						op_id, rte_strerror(abs(ret)), ret);
+			}
+			break;
 	}
-
+	++cp_stats.nb_sent;
 	DEBUG_PRINTF("Added op_id; %"PRIu64"\n", op_id);
-
 	++op_id;
 }
-
 
 /* Curretly we are simply accounting the config-result-notifications for
  * each message passed to the SDN Controller. In future, we will be
@@ -401,7 +436,124 @@ add_nb_op_id_hash(void)
 static void
 del_nb_op_id(uint64_t nb_op_id)
 {
-	int ret = rte_hash_del_key(nb_op_id_hash, (void *)&nb_op_id);
+	int ret = 0;
+	uint16_t payload_length;
+	struct response_info *tmp = NULL;
+
+	ret = rte_hash_lookup_data(nb_op_id_hash, (void *)&nb_op_id,
+			(void **)&tmp);
+	if (ret < 0) {
+		fprintf(stderr, " rte_hash_lookup_data failed for"
+				"op_id %"PRIu64": %s (%u)\n",
+				nb_op_id, rte_strerror(abs(ret)), ret);
+		return;
+	}
+
+	switch (tmp->msg_type) {
+		case GTP_CREATE_SESSION_REQ: {
+			switch(spgw_cfg){
+				case SGWC:
+				case SPGWC: {
+					set_create_session_response(&(tmp->gtpv2c_tx_t),
+							tmp->gtpv2c_tx_t.teid_u.has_teid.seq,
+							&(tmp->context_t), &(tmp->pdn_t),
+							&(tmp->bearer_t));
+
+					payload_length = ntohs(tmp->gtpv2c_tx_t.gtpc.length)
+						+ sizeof(tmp->gtpv2c_tx_t.gtpc);
+
+					gtpv2c_send(s11_fd, (uint8_t*)&(tmp->gtpv2c_tx_t),
+							payload_length,
+							(struct sockaddr *) &s11_mme_sockaddr,
+							s11_mme_sockaddr_len);
+					break;
+					}
+
+				case PGWC: {
+					set_pgwc_s5s8_create_session_response(&(tmp->gtpv2c_tx_t),
+							tmp->gtpv2c_tx_t.teid_u.has_teid.seq, &(tmp->pdn_t),
+							&(tmp->bearer_t));
+
+					payload_length = ntohs(tmp->gtpv2c_tx_t.gtpc.length)
+						+ sizeof(tmp->gtpv2c_tx_t.gtpc);
+
+					gtpv2c_send(s5s8_pgwc_fd, (uint8_t*)&(tmp->gtpv2c_tx_t),
+							payload_length,
+							(struct sockaddr *) &s5s8_sgwc_sockaddr,
+							s5s8_pgwc_sockaddr_len);
+					break;
+					}
+				default:
+					break;
+			}/* Case cp type*/
+			break;
+
+		}/* Case Create session req*/
+		case GTP_MODIFY_BEARER_REQ: {
+			set_modify_bearer_response(&(tmp->gtpv2c_tx_t),
+					tmp->gtpv2c_tx_t.teid_u.has_teid.seq,
+					&(tmp->context_t), &(tmp->bearer_t));
+
+			payload_length = ntohs(tmp->gtpv2c_tx_t.gtpc.length)
+				+ sizeof(tmp->gtpv2c_tx_t.gtpc);
+
+			gtpv2c_send(s11_fd, (uint8_t*)&(tmp->gtpv2c_tx_t),
+					payload_length,
+					(struct sockaddr *) &s11_mme_sockaddr,
+					s11_mme_sockaddr_len);
+			break;
+		}
+		case GTP_DELETE_SESSION_REQ: {
+			switch(spgw_cfg){
+				case SGWC:
+				case SPGWC:
+					set_gtpv2c_teid_header(&(tmp->gtpv2c_tx_t),
+							GTP_DELETE_SESSION_RSP,
+							tmp->context_t.s11_mme_gtpc_teid,
+							tmp->gtpv2c_tx_t.teid_u.has_teid.seq);
+
+					set_cause_accepted_ie(&(tmp->gtpv2c_tx_t),
+							IE_INSTANCE_ZERO);
+
+					payload_length = ntohs(tmp->gtpv2c_tx_t.gtpc.length)
+						+ sizeof(tmp->gtpv2c_tx_t.gtpc);
+
+					gtpv2c_send(s11_fd, (uint8_t*)&(tmp->gtpv2c_tx_t),
+							payload_length,
+							(struct sockaddr *) &s11_mme_sockaddr,
+							s11_mme_sockaddr_len);
+					break;
+
+				case PGWC:
+					set_gtpv2c_teid_header(&(tmp->gtpv2c_tx_t),
+							GTP_DELETE_SESSION_RSP,
+							tmp->s5s8_sgw_gtpc_del_teid_ptr,
+							tmp->gtpv2c_tx_t.teid_u.has_teid.seq);
+
+					set_cause_accepted_ie(&(tmp->gtpv2c_tx_t),
+							IE_INSTANCE_ZERO);
+
+					payload_length = ntohs(tmp->gtpv2c_tx_t.gtpc.length)
+						+ sizeof(tmp->gtpv2c_tx_t.gtpc);
+
+					gtpv2c_send(s5s8_pgwc_fd, (uint8_t*)&(tmp->gtpv2c_tx_t),
+							payload_length,
+							(struct sockaddr *) &s5s8_sgwc_sockaddr,
+							s5s8_pgwc_sockaddr_len);
+					break;
+
+				default:
+					break;
+			}/* case cp type*/
+			break;
+
+		}/*case delete_req_msg*/
+
+		default:
+			break;
+	}/* case msg_type */
+
+	ret = rte_hash_del_key(nb_op_id_hash, (void *)&nb_op_id);
 
 	DEBUG_PRINTF("Deleting op_id; %"PRIu64"\n", nb_op_id);
 
@@ -413,8 +565,12 @@ del_nb_op_id(uint64_t nb_op_id)
 	} else {
 		++cp_stats.nb_cnr;
 	}
-}
 
+	if (NULL != tmp) {
+		/* free the memory */
+		rte_free(tmp);
+	}
+}
 
 /**
  * @brief verifies that an op_id received within a response message on the NB
@@ -439,7 +595,6 @@ check_nb_op_id(uint64_t nb_op_id)
 		++cp_stats.nb_ok;
 	}
 }
-
 
 /**
  * @brief creates a json_object for use in the notification stream request
@@ -994,7 +1149,6 @@ sse_handle_message_configure(json_object *jobj)
 			json_object_to_json_string(jobj));
 		return;
 	}
-
 	check_nb_op_id(json_object_get_int64(op_id_jobj));
 }
 
